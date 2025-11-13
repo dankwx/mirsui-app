@@ -67,4 +67,40 @@ export const authService = {
   },
 };
 
+export interface FeedPost {
+  id: number;
+  track_url: string;
+  track_title: string;
+  artist_name: string;
+  album_name: string;
+  popularity: number;
+  track_thumbnail: string;
+  user_id: string;
+  position: number;
+  claimedat: string;
+  track_uri: string;
+  discover_rating: number;
+  claim_message: string;
+  youtube_url: string | null;
+  username: string;
+  display_name: string | null;
+  avatar_url: string | null;
+  likes_count: number;
+  comments_count: number;
+}
+
+export interface FeedResponse {
+  posts: FeedPost[];
+  total: number;
+}
+
+export const feedService = {
+  getFeed: async (limit: number = 5, offset: number = 0): Promise<FeedResponse> => {
+    const response = await api.get<FeedResponse>('/feed', {
+      params: { limit, offset }
+    });
+    return response.data;
+  },
+};
+
 export default api;
