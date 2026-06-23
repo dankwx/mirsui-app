@@ -1,0 +1,214 @@
+import { API_URL } from '../config'
+import type {
+  AuthResponse,
+  FeedPost,
+  Profile,
+  ProfileComment,
+  ProfileStats,
+  ProfileTrack,
+  RecentClaim,
+  SupabaseSession,
+  SupabaseUser,
+} from './types'
+
+export class ApiError extends Error {
+  status: number
+  constructor(message: string, status: number) {
+    super(message)
+    this.status = status
+    this.name = 'ApiError'
+  }
+}
+
+async function request<T>(
+  path: string,
+  options: RequestInit & { token?: string } = {}
+): Promise<T> {
+  const { token, headers, ...rest } = options
+
+  let res: Response
+  try {
+    res = await fetch(`${API_URL}${path}`, {
+      ...rest,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(headers || {}),
+      },
+    })
+  } catch (e) {
+    throw new ApiError(
+      'Não foi possível conectar ao servidor. Verifique sua conexão.',
+      0
+    )
+  }
+
+  const text = await res.text()
+  const data = text ? safeJson(text) : null
+
+  if (!res.ok) {
+    const message =
+      (data && (data.error || data.message)) ||
+      `Erro ${res.status}`
+    throw new ApiError(message, res.status)
+  }
+
+  return data as T
+}
+
+function safeJson(text: string): any {
+  try {
+    return JSON.parse(text)
+  } catch {
+    return null
+  }
+}
+
+/* ----------------------------- Auth ----------------------------- */
+
+export function login(email: string, password: string) {
+  return request<AuthResponse>('/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ email, password }),
+  })
+}
+
+export function signup(email: string, password: string, username: string) {
+  return request<AuthResponse>('/auth/signup', {
+    method: 'POST',
+    body: JSON.stringify({ email, password, username }),
+  })
+}
+
+export function logout(token?: string) {
+  return request<{ message: string }>('/auth/logout', {
+    method: 'POST',
+    token,
+  })
+}
+
+export function refresh(refreshToken: string) {
+  return request<{ message: string; session: SupabaseSession; user: SupabaseUser }>(
+    '/auth/refresh',
+    {
+      method: 'POST',
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    }
+  )
+}
+
+export function me(token: string) {
+  return request<{ user: SupabaseUser; profile: Profile | null }>('/auth/me', {
+    token,
+  })
+}
+
+/* --------------------------- Profiles --------------------------- */
+
+export function getProfileTracks(profileId: string, limit = 50, offset = 0) {
+  return request<{ tracks: ProfileTrack[] }>(
+    `/profiles/${profileId}/tracks?limit=${limit}&offset=${offset}`
+  )
+}
+
+export function getProfileComments(profileId: string, limit = 10, offset = 0) {
+  return request<{ comments: ProfileComment[]; total: number }>(
+    `/profiles/${profileId}/comments?limit=${limit}&offset=${offset}`
+  )
+}
+
+export function getProfileStats(profileId: string) {
+  return request<ProfileStats>(`/profiles/${profileId}/stats`)
+}
+
+// Atualiza o próprio perfil (display_name, description, avatar_url, username)
+export function updateProfile(
+  profileId: string,
+  body: Partial<Pick<Profile, 'display_name' | 'description' | 'avatar_url' | 'username'>>,
+  token: string
+) {
+  return request<{ profile: Profile }>(`/profiles/${profileId}`, {
+    method: 'PATCH',
+    token,
+    body: JSON.stringify(body),
+  })
+}
+
+// Envia uma nova foto de perfil (base64) e devolve o profile atualizado.
+export function uploadAvatar(
+  profileId: string,
+  imageBase64: string,
+  contentType: string,
+  token: string
+) {
+  return request<{ avatar_url: string; profile: Profile }>(
+    `/profiles/${profileId}/avatar`,
+    {
+      method: 'POST',
+      token,
+      body: JSON.stringify({ image_base64: imageBase64, content_type: contentType }),
+    }
+  )
+}
+
+/* ----------------------------- Tracks --------------------------- */
+
+export function favoriteTrack(trackId: number, token: string) {
+  return request<{ success: boolean; is_favorited: boolean }>(
+    `/tracks/${trackId}/favorite`,
+    { method: 'POST', token }
+  )
+}
+
+export function unfavoriteTrack(trackId: number, token: string) {
+  return request<{ success: boolean; is_favorited: boolean }>(
+    `/tracks/${trackId}/favorite`,
+    { method: 'DELETE', token }
+  )
+}
+
+export function deleteTrack(trackId: number, token: string) {
+  return request<{ success: boolean }>(`/tracks/${trackId}`, {
+    method: 'DELETE',
+    token,
+  })
+}
+
+/* ----------------------------- Feed ----------------------------- */
+
+export function getFeed(limit = 5, offset = 0) {
+  return request<{ posts: FeedPost[]; total: number }>(
+    `/feed?limit=${limit}&offset=${offset}`
+  )
+}
+
+export function getRecentClaims(limit = 4) {
+  return request<{ claims: RecentClaim[] }>(`/feed/recent-claims?limit=${limit}`)
+}
+
+export function getUserLikes(trackIds: number[], token?: string) {
+  return request<{ liked_tracks: number[] }>('/feed/user-likes', {
+    method: 'POST',
+    token,
+    body: JSON.stringify({ track_ids: trackIds }),
+  })
+}
+
+/* --------------------------- Likes ------------------------------ */
+
+export function likeTrack(trackId: number, token: string) {
+  return request<{ success: boolean }>(`/tracks/${trackId}/like`, {
+    method: 'POST',
+    token,
+  })
+}
+
+export function unlikeTrack(trackId: number, token: string) {
+  return request<{ success: boolean; deleted: number }>(
+    `/tracks/${trackId}/like`,
+    {
+      method: 'DELETE',
+      token,
+    }
+  )
+}

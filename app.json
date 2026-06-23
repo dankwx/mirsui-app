@@ -1,11 +1,13 @@
 {
   "expo": {
-    "name": "mirsui-app",
+    "name": "Mirsui",
     "slug": "mirsui-app",
     "version": "1.0.0",
+    "scheme": "mirsui",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#16120c",
     "ios": {
       "supportsTablet": true
     },
@@ -20,6 +22,15 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "O Mirsui usa suas fotos para você escolher a imagem de perfil."
+        }
+      ]
+    ]
   }
 }
