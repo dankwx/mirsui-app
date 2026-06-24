@@ -103,6 +103,8 @@ src/
 | Reivindicações recentes | `GET /feed/recent-claims` |
 | Likes do usuário | `POST /feed/user-likes` |
 | Salvar / remover | `POST` / `DELETE /tracks/:id/like` |
+| Seguidores / Seguindo | `GET /profiles/:id/followers` · `GET /profiles/:id/following` |
+| Seguir / Deixar de seguir | `POST` / `DELETE /profiles/:id/follow` |
 | Buscar faixa (Spotify) | `GET /tracks/search?q&limit` |
 | Listar stakes | `GET /stakes` |
 | Prévia do multiplicador | `GET /stakes/preview?isrc&artist&title` |

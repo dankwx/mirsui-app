@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useMemo } from 'react'
 import {
   ActivityIndicator,
   FlatList,
@@ -10,8 +10,14 @@ import {
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { router } from 'expo-router'
+import {
+  useInfiniteQuery,
+  useQuery,
+  useQueryClient,
+  type InfiniteData,
+} from '@tanstack/react-query'
 import * as api from '../api/client'
-import type { FeedPost, RecentClaim } from '../api/types'
+import { feedKeys, feedQuery, recentClaimsQuery } from '../api/queries'
 import { useAuth } from '../auth/AuthContext'
 import Cover from '../components/Cover'
 import FeedItem, { FeedPostUI } from '../components/FeedItem'
@@ -27,114 +33,65 @@ function openTrack(item: { track_uri?: string | null; track_url?: string | null 
   if (id) router.push(`/track/${id}`)
 }
 
-const PAGE = 5
-
 export default function FeedScreen() {
   const insets = useSafeAreaInsets()
+  const queryClient = useQueryClient()
   const { user, profile, getValidToken } = useAuth()
 
-  const [posts, setPosts] = useState<FeedPostUI[]>([])
-  const [claims, setClaims] = useState<RecentClaim[]>([])
-  const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
-  const [loadingMore, setLoadingMore] = useState(false)
-  const [hasMore, setHasMore] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  // Feed paginado (infinite) + claims via React Query: ao voltar para a aba, o
+  // cache aparece na hora (sem re-spinner) e revalida em background.
+  const feedQ = useInfiniteQuery(feedQuery(getValidToken))
+  const claimsQ = useQuery(recentClaimsQuery())
 
-  const decorateWithLikes = useCallback(
-    async (raw: FeedPost[]): Promise<FeedPostUI[]> => {
-      if (raw.length === 0) return []
-      let liked = new Set<number>()
-      try {
-        const token = await getValidToken()
-        const res = await api.getUserLikes(
-          raw.map((p) => p.id),
-          token ?? undefined
-        )
-        liked = new Set(res.liked_tracks || [])
-      } catch {
-        // sem likes não é erro fatal
-      }
-      return raw.map((p) => ({ ...p, isLiked: liked.has(p.id) }))
-    },
-    [getValidToken]
-  )
+  const posts = useMemo<FeedPostUI[]>(() => feedQ.data?.pages.flat() ?? [], [feedQ.data])
+  const claims = claimsQ.data ?? []
 
-  const load = useCallback(async () => {
-    setError(null)
-    try {
-      const [feedRes, claimsRes] = await Promise.all([
-        api.getFeed(PAGE, 0),
-        api.getRecentClaims(4),
-      ])
-      const decorated = await decorateWithLikes(feedRes.posts || [])
-      setPosts(decorated)
-      setClaims(claimsRes.claims || [])
-      setHasMore((feedRes.posts || []).length === PAGE)
-    } catch (e: any) {
-      setError(e?.message || 'Não foi possível carregar o feed.')
-    } finally {
-      setLoading(false)
-      setRefreshing(false)
-    }
-  }, [decorateWithLikes])
+  const loading = feedQ.isLoading
+  const refreshing = feedQ.isRefetching && !feedQ.isFetchingNextPage
+  const loadingMore = feedQ.isFetchingNextPage
+  const error = feedQ.error ? feedQ.error.message || 'Não foi possível carregar o feed.' : null
 
-  useEffect(() => {
-    load()
-  }, [load])
+  const reload = useCallback(() => {
+    feedQ.refetch()
+    claimsQ.refetch()
+  }, [feedQ, claimsQ])
 
-  const onRefresh = useCallback(() => {
-    setRefreshing(true)
-    load()
-  }, [load])
+  const loadMore = useCallback(() => {
+    if (feedQ.hasNextPage && !feedQ.isFetchingNextPage) feedQ.fetchNextPage()
+  }, [feedQ])
 
-  const loadMore = useCallback(async () => {
-    if (loadingMore || !hasMore || loading) return
-    setLoadingMore(true)
-    try {
-      const res = await api.getFeed(PAGE, posts.length)
-      const newPosts = res.posts || []
-      if (newPosts.length === 0) {
-        setHasMore(false)
-        return
-      }
-      const decorated = await decorateWithLikes(newPosts)
-      setPosts((prev) => [...prev, ...decorated])
-      if (newPosts.length < PAGE) setHasMore(false)
-    } catch {
-      // mantém o que já existe
-    } finally {
-      setLoadingMore(false)
-    }
-  }, [loadingMore, hasMore, loading, posts.length, decorateWithLikes])
-
-  // Like/unlike otimista, com reversão em caso de falha.
+  // Like/unlike otimista no cache do feed (estrutura InfiniteData), com
+  // reversão em caso de falha. `flip(true)` soma +1; `flip(false)` subtrai 1 —
+  // como sempre alternamos uma vez em cada sentido, o rollback é exato.
   const toggleSave = useCallback(
     async (post: FeedPostUI) => {
       const next = !post.isLiked
-      setPosts((prev) =>
-        prev.map((p) =>
-          p.id === post.id
-            ? { ...p, isLiked: next, likes_count: p.likes_count + (next ? 1 : -1) }
-            : p
+      const flip = (liked: boolean) =>
+        queryClient.setQueryData<InfiniteData<FeedPostUI[]>>(feedKeys.list, (old) =>
+          old
+            ? {
+                ...old,
+                pages: old.pages.map((page) =>
+                  page.map((p) =>
+                    p.id === post.id
+                      ? { ...p, isLiked: liked, likes_count: p.likes_count + (liked ? 1 : -1) }
+                      : p
+                  )
+                ),
+              }
+            : old
         )
-      )
+      flip(next)
       try {
         const token = await getValidToken()
         if (!token) throw new Error('no token')
         if (next) await api.likeTrack(post.id, token)
         else await api.unlikeTrack(post.id, token)
       } catch {
-        setPosts((prev) =>
-          prev.map((p) =>
-            p.id === post.id
-              ? { ...p, isLiked: !next, likes_count: p.likes_count + (next ? -1 : 1) }
-              : p
-          )
-        )
+        flip(!next) // rollback
       }
     },
-    [getValidToken]
+    [queryClient, getValidToken]
   )
 
   const drop = posts[0]
@@ -217,7 +174,7 @@ export default function FeedScreen() {
         contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: insets.bottom + 96 }}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.acc} />
+          <RefreshControl refreshing={refreshing} onRefresh={reload} tintColor={colors.acc} />
         }
         onEndReached={loadMore}
         onEndReachedThreshold={0.4}
@@ -225,7 +182,7 @@ export default function FeedScreen() {
           error ? (
             <View style={styles.emptyBox}>
               <Text style={styles.emptyText}>{error}</Text>
-              <Button label="Tentar de novo" variant="light" onPress={load} style={{ marginTop: 14 }} />
+              <Button label="Tentar de novo" variant="light" onPress={reload} style={{ marginTop: 14 }} />
             </View>
           ) : (
             <View style={styles.emptyBox}>

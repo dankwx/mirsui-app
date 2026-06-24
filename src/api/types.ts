@@ -86,6 +86,16 @@ export interface ProfileStats {
   following: number
 }
 
+// GET /profiles/:id/followers | /following → usuário numa lista social
+export interface FollowUser {
+  id: string
+  username: string | null
+  display_name: string | null
+  avatar_url: string | null
+  rating: number | null
+  isFollowing: boolean
+}
+
 // GET /tracks/spotify/:id → detalhes completos de uma faixa (página de track)
 export interface TrackClaimer {
   user_id: string

@@ -3,7 +3,9 @@ import { ActivityIndicator, StyleSheet, View } from 'react-native'
 import { Stack } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
+import { QueryClientProvider } from '@tanstack/react-query'
 import { AuthProvider, useAuth } from '../src/auth/AuthContext'
+import { queryClient } from '../src/api/queryClient'
 import MirsuiLogo from '../src/components/MirsuiLogo'
 import { colors } from '../src/theme'
 
@@ -48,9 +50,13 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <StatusBar style="light" />
-      <AuthProvider>
-        <RootNavigator />
-      </AuthProvider>
+      {/* QueryClientProvider acima do AuthProvider: o auth dispara o prefetch
+          do perfil assim que a sessão é restaurada. */}
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <RootNavigator />
+        </AuthProvider>
+      </QueryClientProvider>
     </SafeAreaProvider>
   )
 }

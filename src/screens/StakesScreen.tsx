@@ -22,8 +22,10 @@ import { Image } from 'expo-image'
 import { Ionicons } from '@expo/vector-icons'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useFocusEffect } from 'expo-router'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import * as api from '../api/client'
 import { ApiError } from '../api/client'
+import { stakeKeys, stakePointsQuery, stakesQuery } from '../api/queries'
 import type { SearchTrack, Stake } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
 import { Button } from '../components/ui'
@@ -102,77 +104,129 @@ function CoverFill({
 }
 
 /* --------------------------------------------------------------------------
+ * Rail de vagas: resumo dos 3 slots, sempre visível, com feedback de status
+ * e navegação direta. Espelha as cores de status do FilledSlot.
+ * ------------------------------------------------------------------------ */
+type SlotMeta = { dot: string; short: string; glow: boolean }
+
+function slotMeta(s: Stake | null): SlotMeta {
+  if (!s) return { dot: colors.acc, short: 'LIVRE', glow: false }
+  if (s.status === 'removida') return { dot: '#8a8175', short: 'REMOVIDA', glow: false }
+  if (s.can_collect) return { dot: colors.acc, short: 'RECOLHER', glow: true }
+  return { dot: '#e0a84a', short: `${s.days_held}D`, glow: true }
+}
+
+function SlotRail({
+  slots,
+  focused,
+  onFocus,
+}: {
+  slots: (Stake | null)[]
+  focused: number
+  onFocus: (i: number) => void
+}) {
+  return (
+    <View style={styles.rail}>
+      {slots.map((s, i) => {
+        const m = slotMeta(s)
+        const active = i === focused
+        const vaga = '0' + (i + 1)
+        return (
+          <Pressable
+            key={i}
+            onPress={() => onFocus(i)}
+            style={({ pressed }) => [
+              styles.railItem,
+              active && styles.railItemActive,
+              pressed && { opacity: 0.85 },
+            ]}
+          >
+            <View style={styles.railThumbWrap}>
+              <View style={styles.railThumb}>
+                {s ? (
+                  <CoverFill
+                    thumbnail={s.track_thumbnail}
+                    seed={s.artist_name + s.track_title}
+                  />
+                ) : (
+                  <View style={styles.railThumbEmpty}>
+                    <Ionicons name="add" size={20} color={colors.acc} />
+                  </View>
+                )}
+              </View>
+              <View
+                style={[
+                  styles.railDot,
+                  { backgroundColor: m.dot },
+                  m.glow && { shadowColor: m.dot },
+                ]}
+              />
+            </View>
+            <Text style={[styles.railVaga, active && { color: colors.text }]}>
+              {vaga}
+            </Text>
+            <Text style={[styles.railShort, { color: m.dot }]} numberOfLines={1}>
+              {m.short}
+            </Text>
+          </Pressable>
+        )
+      })}
+    </View>
+  )
+}
+
+/* --------------------------------------------------------------------------
  * Tela principal
  * ------------------------------------------------------------------------ */
 export default function StakesScreen() {
   const insets = useSafeAreaInsets()
+  const queryClient = useQueryClient()
   const { getValidToken, isAuthenticated } = useAuth()
   const { toast, show, anim: toastAnim } = useToast()
 
-  const [stakes, setStakes] = useState<Stake[]>([])
-  const [points, setPoints] = useState<number | null>(null)
-  const [loading, setLoading] = useState(true)
+  // stakes + pontos via React Query: ao voltar para a aba, o cache aparece na
+  // hora; revalidamos em background ao focar (dias/pontos mudam com o tempo).
+  const stakesQ = useQuery(stakesQuery(getValidToken))
+  const pointsQ = useQuery(stakePointsQuery(getValidToken))
+
+  const stakes = stakesQ.data ?? []
+  const points = pointsQ.data ?? null
+  const loading = stakesQ.isLoading
+  const error = stakesQ.error
+    ? stakesQ.error.message || 'Não foi possível carregar seus stakes.'
+    : null
+
+  // pull-to-refresh manual, separado do refetch de background do foco (que não
+  // deve acender o spinner).
   const [refreshing, setRefreshing] = useState(false)
-  const [error, setError] = useState<string | null>(null)
 
   // modal de dar stake
   const [modalSlot, setModalSlot] = useState<number | null>(null)
   const [openInfo, setOpenInfo] = useState<Record<string, boolean>>({})
   const [busyId, setBusyId] = useState<string | null>(null)
 
-  /* ---- carregar stakes + pontos ---- */
-  const load = useCallback(
-    async (opts: { silent?: boolean } = {}) => {
-      if (!opts.silent) setError(null)
-      const token = await getValidToken()
-      if (!token) {
-        setStakes([])
-        setPoints(null)
-        setLoading(false)
-        if (!opts.silent) setError('Faça login para dar stake em faixas.')
-        return
-      }
-      try {
-        const [stakesRes, pointsRes] = await Promise.allSettled([
-          api.getStakes(token),
-          api.getStakePoints(token),
-        ])
-        if (stakesRes.status === 'fulfilled') {
-          setStakes(stakesRes.value.stakes ?? [])
-          if (!opts.silent) setError(null)
-        } else if (!opts.silent) {
-          setError('Não foi possível carregar seus stakes.')
-        }
-        if (pointsRes.status === 'fulfilled') {
-          setPoints(pointsRes.value.total ?? 0)
-        }
-      } finally {
-        setLoading(false)
-      }
-    },
-    [getValidToken]
-  )
+  // vaga em foco no rail (0..MAX_SLOTS-1)
+  const [focused, setFocused] = useState(0)
+  const cardAnim = useRef(new Animated.Value(1)).current
 
-  useEffect(() => {
-    load()
-  }, [load])
+  const reload = useCallback(() => {
+    stakesQ.refetch()
+    pointsQ.refetch()
+  }, [stakesQ, pointsQ])
 
-  // Atualiza em silêncio ao voltar para a aba (dias/pontos mudam com o tempo).
+  // Revalida em silêncio ao focar a aba.
   useFocusEffect(
     useCallback(() => {
-      let active = true
-      if (active) load({ silent: true })
-      return () => {
-        active = false
-      }
-    }, [load])
+      queryClient.invalidateQueries({ queryKey: stakeKeys.list })
+      queryClient.invalidateQueries({ queryKey: stakeKeys.points })
+    }, [queryClient])
   )
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true)
-    await load({ silent: true })
+    await Promise.all([stakesQ.refetch(), pointsQ.refetch()])
     setRefreshing(false)
-  }, [load])
+  }, [stakesQ, pointsQ])
 
   /* ---- recolher / esvaziar vaga ---- */
   const recolher = useCallback(
@@ -191,7 +245,8 @@ export default function StakesScreen() {
           show('Vaga liberada')
         }
         setOpenInfo((p) => ({ ...p, [s.id]: false }))
-        await load({ silent: true })
+        await queryClient.invalidateQueries({ queryKey: stakeKeys.list })
+        queryClient.invalidateQueries({ queryKey: stakeKeys.points })
       } catch (e) {
         show(
           e instanceof ApiError ? e.message : 'Erro ao recolher',
@@ -201,16 +256,17 @@ export default function StakesScreen() {
         setBusyId(null)
       }
     },
-    [getValidToken, load, show]
+    [getValidToken, queryClient, show]
   )
 
   const onStakePlaced = useCallback(
     async (title: string, multiplier: number) => {
       show(`Stake feito! "${title}" · ${formatMultiplier(multiplier)}`)
       setModalSlot(null)
-      await load({ silent: true })
+      await queryClient.invalidateQueries({ queryKey: stakeKeys.list })
+      queryClient.invalidateQueries({ queryKey: stakeKeys.points })
     },
-    [load, show]
+    [queryClient, show]
   )
 
   /* ---- derivados ---- */
@@ -220,6 +276,17 @@ export default function StakesScreen() {
   )
   const used = Math.min(stakes.length, MAX_SLOTS)
   const free = MAX_SLOTS - used
+  const focusedSlot = slots[focused] ?? null
+
+  // fade/slide suave ao trocar a vaga em foco (feedback de navegação).
+  useEffect(() => {
+    cardAnim.setValue(0)
+    Animated.timing(cardAnim, {
+      toValue: 1,
+      duration: 220,
+      useNativeDriver: true,
+    }).start()
+  }, [focused, cardAnim])
 
   const toggleInfo = (id: string) =>
     setOpenInfo((p) => ({ ...p, [id]: !p[id] }))
@@ -283,29 +350,49 @@ export default function StakesScreen() {
               <Button
                 label="Tentar de novo"
                 variant="ghost"
-                onPress={() => load()}
+                onPress={reload}
                 style={{ marginTop: 14 }}
               />
             )}
           </View>
         ) : (
-          <View style={styles.slots}>
-            {slots.map((s, i) =>
-              s ? (
+          <>
+            <SlotRail slots={slots} focused={focused} onFocus={setFocused} />
+            <Animated.View
+              style={[
+                styles.slots,
+                {
+                  opacity: cardAnim,
+                  transform: [
+                    {
+                      translateY: cardAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [10, 0],
+                      }),
+                    },
+                  ],
+                },
+              ]}
+            >
+              {focusedSlot ? (
                 <FilledSlot
-                  key={s.id}
-                  stake={s}
-                  index={i}
-                  busy={busyId === s.id}
-                  open={!!openInfo[s.id]}
-                  onToggleInfo={() => toggleInfo(s.id)}
-                  onRecolher={() => recolher(s)}
+                  key={focusedSlot.id}
+                  stake={focusedSlot}
+                  index={focused}
+                  busy={busyId === focusedSlot.id}
+                  open={!!openInfo[focusedSlot.id]}
+                  onToggleInfo={() => toggleInfo(focusedSlot.id)}
+                  onRecolher={() => recolher(focusedSlot)}
                 />
               ) : (
-                <EmptySlot key={`empty-${i}`} index={i} onPress={() => setModalSlot(i)} />
-              )
-            )}
-          </View>
+                <EmptySlot
+                  key={`empty-${focused}`}
+                  index={focused}
+                  onPress={() => setModalSlot(focused)}
+                />
+              )}
+            </Animated.View>
+          </>
         )}
       </ScrollView>
 
@@ -1013,6 +1100,67 @@ const styles = StyleSheet.create({
 
   // slots
   slots: { paddingHorizontal: 22, paddingTop: 14, gap: 18 },
+
+  // rail de vagas
+  rail: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingHorizontal: 22,
+    paddingTop: 18,
+  },
+  railItem: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 7,
+    paddingVertical: 12,
+    paddingHorizontal: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.surface,
+  },
+  railItemActive: {
+    borderColor: 'rgba(205,239,54,0.5)',
+    backgroundColor: colors.card,
+  },
+  railThumbWrap: { width: 52, height: 52 },
+  railThumb: {
+    width: 52,
+    height: 52,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: colors.card,
+  },
+  railThumbEmpty: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    borderColor: 'rgba(205,239,54,0.4)',
+    borderRadius: 12,
+  },
+  railDot: {
+    position: 'absolute',
+    top: -3,
+    right: -3,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    borderWidth: 2.5,
+    borderColor: colors.bg,
+    shadowOpacity: 0.9,
+    shadowRadius: 5,
+    shadowOffset: { width: 0, height: 0 },
+  },
+  railVaga: {
+    color: colors.text3,
+    fontSize: 11,
+    letterSpacing: 1.5,
+    fontWeight: '700',
+    fontFamily: MONO,
+  },
+  railShort: { fontSize: 9, letterSpacing: 1, fontFamily: MONO },
 
   // vaga livre
   empty: {

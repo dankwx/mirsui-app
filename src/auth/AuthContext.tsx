@@ -6,8 +6,10 @@ import React, {
   useMemo,
   useState,
 } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import * as api from '../api/client'
 import { ApiError } from '../api/client'
+import { prefetchHome, prefetchProfile } from '../api/queries'
 import { clearSession, loadSession, saveSession } from '../api/session'
 import type { Profile, SupabaseSession, SupabaseUser } from '../api/types'
 
@@ -35,6 +37,7 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined)
 const EXPIRY_SKEW = 60
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const queryClient = useQueryClient()
   const [state, setState] = useState<AuthState>({
     loading: true,
     user: null,
@@ -46,8 +49,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     async (session: SupabaseSession, user: SupabaseUser, profile: Profile | null) => {
       await saveSession(session)
       setState({ loading: false, user, profile, session })
+      // Já temos a sessão: aquece o cache em background para que as abas abram
+      // com os dados prontos (sem o flicker de "0"). O token recém-aplicado
+      // serve as queries autenticadas (stakes).
+      const getToken = () => Promise.resolve<string | null>(session.access_token)
+      if (profile?.id) prefetchProfile(queryClient, profile.id)
+      prefetchHome(queryClient, getToken)
     },
-    []
+    [queryClient]
   )
 
   // Restaura a sessão salva ao abrir o app e confirma com o backend.

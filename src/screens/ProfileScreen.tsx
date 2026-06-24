@@ -1,8 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ActivityIndicator,
   Alert,
+  FlatList,
   Linking,
+  Modal,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -17,7 +20,16 @@ import { router } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useAuth } from '../auth/AuthContext'
 import * as api from '../api/client'
-import type { ProfileComment, ProfileTrack } from '../api/types'
+import { ApiError } from '../api/client'
+import {
+  followListQuery,
+  prefetchSocialLists,
+  profileCommentsQuery,
+  profileKeys,
+  profileStatsQuery,
+  profileTracksQuery,
+} from '../api/queries'
+import type { FollowUser, ProfileComment, ProfileStats, ProfileTrack } from '../api/types'
 import { Button } from '../components/ui'
 import EditProfileModal from '../components/EditProfileModal'
 import { timeAgo } from '../lib/time'
@@ -57,43 +69,47 @@ const FILTERS: { id: Filter; label: string }[] = [
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets()
+  const queryClient = useQueryClient()
   const { profile, signOut, getValidToken } = useAuth()
 
-  const [tracks, setTracks] = useState<ProfileTrack[]>([])
-  const [comments, setComments] = useState<ProfileComment[]>([])
-  const [social, setSocial] = useState({ followers: 0, following: 0 })
-  const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState<Filter>('all')
   const [editing, setEditing] = useState(false)
+  // Modal de seguidores/seguindo (null = fechado).
+  const [followList, setFollowList] = useState<'followers' | 'following' | null>(null)
 
   const profileId = profile?.id
 
-  const load = useCallback(async () => {
-    if (!profileId) return
-    setError(null)
-    try {
-      const [tracksRes, commentsRes, statsRes] = await Promise.all([
-        api.getProfileTracks(profileId),
-        api.getProfileComments(profileId),
-        api.getProfileStats(profileId),
-      ])
-      setTracks(tracksRes.tracks)
-      setComments(commentsRes.comments)
-      setSocial(statsRes)
-    } catch (e: any) {
-      setError(e?.message || 'Não foi possível carregar seu perfil.')
-    } finally {
-      setLoading(false)
-      setRefreshing(false)
-    }
-  }, [profileId])
+  // Leitura via React Query: cache + stale-while-revalidate. Numa volta para a
+  // aba dentro do staleTime, os dados vêm do cache na hora (sem reset para 0); o
+  // prefetch no login já os tem quentes na primeira abertura. `enabled` segura
+  // tudo enquanto não houver profileId.
+  const enabled = !!profileId
+  const tracksQ = useQuery({ ...profileTracksQuery(profileId ?? ''), enabled })
+  const commentsQ = useQuery({ ...profileCommentsQuery(profileId ?? ''), enabled })
+  const statsQ = useQuery({ ...profileStatsQuery(profileId ?? ''), enabled })
 
+  const tracks: ProfileTrack[] = tracksQ.data ?? []
+  const comments: ProfileComment[] = commentsQ.data ?? []
+  const social: ProfileStats = statsQ.data ?? { followers: 0, following: 0 }
+
+  // "loading" só na primeira carga sem nada em cache; revalidações em background
+  // não voltam a tela ao spinner.
+  const loading = enabled && (tracksQ.isLoading || commentsQ.isLoading || statsQ.isLoading)
+  const refreshing = tracksQ.isRefetching || commentsQ.isRefetching || statsQ.isRefetching
+  const queryError = tracksQ.error || commentsQ.error || statsQ.error
+  const error = queryError ? queryError.message || 'Não foi possível carregar seu perfil.' : null
+
+  const reload = useCallback(() => {
+    tracksQ.refetch()
+    commentsQ.refetch()
+    statsQ.refetch()
+  }, [tracksQ, commentsQ, statsQ])
+
+  // Aquece seguidores/seguindo em background para o modal abrir instantâneo já
+  // na primeira vez.
   useEffect(() => {
-    setLoading(true)
-    load()
-  }, [load])
+    if (profileId) prefetchSocialLists(queryClient, profileId, getValidToken)
+  }, [profileId, queryClient, getValidToken])
 
   const name = profile?.display_name || profile?.username || 'Sem nome'
   const username = profile?.username || ''
@@ -117,9 +133,14 @@ export default function ProfileScreen() {
   }, [tracks, filter, favorites])
 
   const onRefresh = useCallback(() => {
-    setRefreshing(true)
-    load()
-  }, [load])
+    reload()
+  }, [reload])
+
+  // Atualiza só os contadores sociais (após seguir/deixar de seguir no modal).
+  const refreshStats = useCallback(() => {
+    if (!profileId) return
+    queryClient.invalidateQueries({ queryKey: profileStatsQuery(profileId).queryKey })
+  }, [profileId, queryClient])
 
   async function handleShare() {
     try {
@@ -133,16 +154,30 @@ export default function ProfileScreen() {
     }
   }
 
+  // Atualiza otimisticamente o cache de faixas e devolve uma função de rollback.
+  const patchTracks = useCallback(
+    (updater: (tracks: ProfileTrack[]) => ProfileTrack[]) => {
+      if (!profileId) return () => {}
+      const key = profileTracksQuery(profileId).queryKey
+      const prev = queryClient.getQueryData<ProfileTrack[]>(key)
+      queryClient.setQueryData<ProfileTrack[]>(key, (old) => updater(old ?? []))
+      return () => queryClient.setQueryData<ProfileTrack[]>(key, prev)
+    },
+    [profileId, queryClient]
+  )
+
   async function toggleFavorite(track: ProfileTrack) {
     const next = !track.is_favorited
-    setTracks((prev) => prev.map((t) => (t.id === track.id ? { ...t, is_favorited: next } : t)))
+    const rollback = patchTracks((ts) =>
+      ts.map((t) => (t.id === track.id ? { ...t, is_favorited: next } : t))
+    )
     try {
       const token = await getValidToken()
       if (!token) throw new Error('no-token')
       if (next) await api.favoriteTrack(track.id, token)
       else await api.unfavoriteTrack(track.id, token)
     } catch {
-      setTracks((prev) => prev.map((t) => (t.id === track.id ? { ...t, is_favorited: !next } : t)))
+      rollback()
       Alert.alert('Ops', 'Não foi possível atualizar o favorito.')
     }
   }
@@ -154,14 +189,13 @@ export default function ProfileScreen() {
         text: 'Remover',
         style: 'destructive',
         onPress: async () => {
-          const prev = tracks
-          setTracks((p) => p.filter((t) => t.id !== track.id))
+          const rollback = patchTracks((ts) => ts.filter((t) => t.id !== track.id))
           try {
             const token = await getValidToken()
             if (!token) throw new Error('no-token')
             await api.deleteTrack(track.id, token)
           } catch {
-            setTracks(prev)
+            rollback()
             Alert.alert('Ops', 'Não foi possível remover a faixa.')
           }
         },
@@ -234,11 +268,19 @@ export default function ProfileScreen() {
 
           {profile?.description ? <Text style={styles.desc}>{profile.description}</Text> : null}
 
-          {/* métricas: apenas seguidores e seguindo */}
+          {/* métricas: seguidores e seguindo (toca pra ver a lista) */}
           <View style={styles.statsRow}>
-            <Stat value={social.followers} label="Seguidores" />
+            <Stat
+              value={social.followers}
+              label="Seguidores"
+              onPress={() => setFollowList('followers')}
+            />
             <View style={styles.statDivider} />
-            <Stat value={social.following} label="Seguindo" />
+            <Stat
+              value={social.following}
+              label="Seguindo"
+              onPress={() => setFollowList('following')}
+            />
           </View>
 
           {/* ações */}
@@ -264,7 +306,7 @@ export default function ProfileScreen() {
         ) : error ? (
           <View style={styles.stateBox}>
             <Text style={styles.stateText}>{error}</Text>
-            <Button label="Tentar de novo" variant="ghost" onPress={load} style={{ marginTop: 16 }} />
+            <Button label="Tentar de novo" variant="ghost" onPress={reload} style={{ marginTop: 16 }} />
           </View>
         ) : (
           <>
@@ -376,15 +418,245 @@ export default function ProfileScreen() {
       {profile ? (
         <EditProfileModal visible={editing} profile={profile} onClose={() => setEditing(false)} />
       ) : null}
+
+      {profileId ? (
+        <FollowListModal
+          type={followList}
+          profileId={profileId}
+          currentUserId={profileId}
+          getValidToken={getValidToken}
+          onClose={() => setFollowList(null)}
+          onChanged={refreshStats}
+        />
+      ) : null}
     </View>
   )
 }
 
-function Stat({ value, label }: { value: number; label: string }) {
+function Stat({
+  value,
+  label,
+  onPress,
+}: {
+  value: number
+  label: string
+  onPress?: () => void
+}) {
   return (
-    <View style={styles.stat}>
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [styles.stat, pressed && { opacity: 0.6 }]}
+      hitSlop={8}
+    >
       <Text style={styles.statValue}>{value}</Text>
       <Text style={styles.statLabel}>{label}</Text>
+    </Pressable>
+  )
+}
+
+/* --------------------------------------------------------------------------
+ * Modal: lista de seguidores / seguindo com botão de seguir / deixar de seguir
+ * ------------------------------------------------------------------------ */
+function FollowListModal({
+  type,
+  profileId,
+  currentUserId,
+  getValidToken,
+  onClose,
+  onChanged,
+}: {
+  type: 'followers' | 'following' | null
+  profileId: string
+  currentUserId: string
+  getValidToken: () => Promise<string | null>
+  onClose: () => void
+  onChanged: () => void
+}) {
+  const insets = useSafeAreaInsets()
+  const queryClient = useQueryClient()
+  const open = type != null
+
+  const [busyId, setBusyId] = useState<string | null>(null)
+  // marca se algo mudou pra avisar o perfil (atualizar contadores) ao fechar
+  const changedRef = React.useRef(false)
+
+  // Leitura via React Query, keyed por tipo: reabrir mostra o cache na hora e
+  // revalida em background (sem a demora a cada abertura). Só a query do tipo
+  // aberto fica ativa.
+  const q = useQuery({
+    ...followListQuery(profileId, type ?? 'followers', getValidToken),
+    enabled: open,
+  })
+
+  const users: FollowUser[] = q.data ?? []
+  const loading = open && q.isLoading
+  const error = q.error
+    ? q.error instanceof ApiError
+      ? q.error.message
+      : 'Não foi possível carregar a lista.'
+    : null
+
+  // Reseta a flag de "mudou" a cada abertura.
+  useEffect(() => {
+    if (open) changedRef.current = false
+  }, [open])
+
+  const reload = useCallback(() => {
+    q.refetch()
+  }, [q])
+
+  const handleClose = () => {
+    if (changedRef.current) onChanged()
+    onClose()
+  }
+
+  const toggleFollow = useCallback(
+    async (user: FollowUser) => {
+      const next = !user.isFollowing
+      const activeKey =
+        type === 'following' ? profileKeys.following(profileId) : profileKeys.followers(profileId)
+      setBusyId(user.id)
+      // otimista no cache
+      const prev = queryClient.getQueryData<FollowUser[]>(activeKey)
+      queryClient.setQueryData<FollowUser[]>(activeKey, (old) =>
+        (old ?? []).map((u) => (u.id === user.id ? { ...u, isFollowing: next } : u))
+      )
+      try {
+        const token = await getValidToken()
+        if (!token) throw new ApiError('Sessão expirada. Entre de novo.', 401)
+        if (next) await api.followUser(user.id, token)
+        else await api.unfollowUser(user.id, token)
+        changedRef.current = true
+      } catch (e) {
+        queryClient.setQueryData<FollowUser[]>(activeKey, prev) // rollback
+        Alert.alert(
+          'Ops',
+          e instanceof ApiError ? e.message : 'Não foi possível atualizar.'
+        )
+      } finally {
+        setBusyId(null)
+      }
+    },
+    [type, profileId, getValidToken, queryClient]
+  )
+
+  const title = type === 'followers' ? 'Seguidores' : 'Seguindo'
+  const emptyText =
+    type === 'followers' ? 'Nenhum seguidor ainda' : 'Não segue ninguém ainda'
+
+  return (
+    <Modal
+      visible={open}
+      animationType="slide"
+      transparent={false}
+      onRequestClose={handleClose}
+      statusBarTranslucent
+    >
+      <View style={[styles.followRoot, { paddingTop: insets.top }]}>
+        <View style={styles.followHeader}>
+          <Text style={styles.followTitle}>{title}</Text>
+          <Pressable onPress={handleClose} style={styles.followClose} hitSlop={8}>
+            <Ionicons name="close" size={20} color={colors.text} />
+          </Pressable>
+        </View>
+
+        {loading ? (
+          <ActivityIndicator color={colors.acc} style={{ marginTop: 40 }} />
+        ) : error ? (
+          <View style={styles.followStateBox}>
+            <Text style={styles.stateText}>{error}</Text>
+            <Button label="Tentar de novo" variant="ghost" onPress={reload} style={{ marginTop: 16 }} />
+          </View>
+        ) : (
+          <FlatList
+            data={users}
+            keyExtractor={(u) => u.id}
+            contentContainerStyle={{
+              paddingHorizontal: GUTTER,
+              paddingTop: 8,
+              paddingBottom: insets.bottom + 24,
+            }}
+            ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
+            renderItem={({ item }) => (
+              <FollowRow
+                user={item}
+                isSelf={item.id === currentUserId}
+                busy={busyId === item.id}
+                onToggle={() => toggleFollow(item)}
+              />
+            )}
+            ListEmptyComponent={
+              <View style={styles.followEmpty}>
+                <Text style={styles.followEmptyText}>{emptyText}</Text>
+              </View>
+            }
+          />
+        )}
+      </View>
+    </Modal>
+  )
+}
+
+function FollowRow({
+  user,
+  isSelf,
+  busy,
+  onToggle,
+}: {
+  user: FollowUser
+  isSelf: boolean
+  busy: boolean
+  onToggle: () => void
+}) {
+  const name = user.display_name || user.username || 'Usuário'
+  return (
+    <View style={styles.followRow}>
+      <View style={styles.followAvatar}>
+        {user.avatar_url ? (
+          <Image source={{ uri: user.avatar_url }} style={styles.avatarImg} />
+        ) : (
+          <Text style={styles.followAvatarIni}>{initials(name)}</Text>
+        )}
+      </View>
+      <View style={styles.followInfo}>
+        <Text style={styles.followName} numberOfLines={1}>
+          {name}
+        </Text>
+        {user.username ? (
+          <Text style={styles.followUsername} numberOfLines={1}>
+            @{user.username}
+          </Text>
+        ) : null}
+      </View>
+      {!isSelf && (
+        <Pressable
+          onPress={onToggle}
+          disabled={busy}
+          style={[
+            styles.followBtn,
+            user.isFollowing ? styles.followBtnOutline : styles.followBtnSolid,
+            busy && { opacity: 0.6 },
+          ]}
+        >
+          {busy ? (
+            <ActivityIndicator
+              size="small"
+              color={user.isFollowing ? colors.text2 : colors.onAcc}
+            />
+          ) : (
+            <Text
+              style={[
+                styles.followBtnText,
+                user.isFollowing
+                  ? { color: colors.text2 }
+                  : { color: colors.onAcc },
+              ]}
+            >
+              {user.isFollowing ? 'Seguindo' : 'Seguir'}
+            </Text>
+          )}
+        </Pressable>
+      )}
     </View>
   )
 }
@@ -665,4 +937,80 @@ const styles = StyleSheet.create({
 
   stateBox: { alignItems: 'center', marginTop: 40, paddingHorizontal: GUTTER },
   stateText: { color: colors.text2, fontSize: 14, textAlign: 'center', lineHeight: 20 },
+
+  // modal de seguidores / seguindo
+  followRoot: { flex: 1, backgroundColor: colors.bg },
+  followHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: GUTTER,
+    paddingTop: 14,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.line,
+  },
+  followTitle: { color: colors.text, fontSize: 22, fontWeight: '800', letterSpacing: -0.8 },
+  followClose: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: colors.line2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  followStateBox: { alignItems: 'center', marginTop: 40, paddingHorizontal: GUTTER },
+  followEmpty: {
+    marginTop: 24,
+    paddingVertical: 40,
+    paddingHorizontal: 24,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: colors.line2,
+    alignItems: 'center',
+  },
+  followEmptyText: { color: colors.text3, fontSize: 13.5, textAlign: 'center' },
+  followRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: colors.fill1,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+  },
+  followAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#1b1813',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: colors.line,
+  },
+  followAvatarIni: { color: colors.text, fontSize: 16, fontWeight: '800' },
+  followInfo: { flex: 1, minWidth: 0 },
+  followName: { color: colors.text, fontSize: 15, fontWeight: '700' },
+  followUsername: { color: colors.text2, fontSize: 12.5, marginTop: 2 },
+  followBtn: {
+    minWidth: 96,
+    height: 38,
+    borderRadius: 999,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  followBtnSolid: { backgroundColor: colors.acc },
+  followBtnOutline: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: colors.line2,
+  },
+  followBtnText: { fontSize: 13.5, fontWeight: '700' },
 })

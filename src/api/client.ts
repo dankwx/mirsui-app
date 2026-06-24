@@ -3,6 +3,7 @@ import type {
   AuthResponse,
   ClaimResult,
   FeedPost,
+  FollowUser,
   PlaceStakeResult,
   Profile,
   ProfileComment,
@@ -33,12 +34,18 @@ async function request<T>(
 ): Promise<T> {
   const { token, headers, ...rest } = options
 
+  // Só anuncia JSON quando há corpo. Requisições sem body (ex.: POST/DELETE de
+  // seguir, like, logout) não podem mandar Content-Type: application/json — o
+  // Fastify rejeita com "Body cannot be empty when content-type is set to
+  // application/json".
+  const hasBody = rest.body != null
+
   let res: Response
   try {
     res = await fetch(`${API_URL}${path}`, {
       ...rest,
       headers: {
-        'Content-Type': 'application/json',
+        ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...(headers || {}),
       },
@@ -121,6 +128,37 @@ export function getProfileTracks(profileId: string, limit = 50, offset = 0) {
 export function getProfileComments(profileId: string, limit = 10, offset = 0) {
   return request<{ comments: ProfileComment[]; total: number }>(
     `/profiles/${profileId}/comments?limit=${limit}&offset=${offset}`
+  )
+}
+
+// Lista de seguidores do perfil. Token opcional: com ele, cada usuário traz o
+// isFollowing relativo a quem está vendo (para o botão de seguir/deixar).
+export function getFollowers(profileId: string, token?: string) {
+  return request<{ users: FollowUser[] }>(`/profiles/${profileId}/followers`, {
+    token,
+  })
+}
+
+// Lista de quem o perfil segue.
+export function getFollowing(profileId: string, token?: string) {
+  return request<{ users: FollowUser[] }>(`/profiles/${profileId}/following`, {
+    token,
+  })
+}
+
+// Seguir um perfil (idempotente no backend).
+export function followUser(profileId: string, token: string) {
+  return request<{ success: boolean; isFollowing: boolean }>(
+    `/profiles/${profileId}/follow`,
+    { method: 'POST', token }
+  )
+}
+
+// Deixar de seguir um perfil.
+export function unfollowUser(profileId: string, token: string) {
+  return request<{ success: boolean; isFollowing: boolean }>(
+    `/profiles/${profileId}/follow`,
+    { method: 'DELETE', token }
   )
 }
 

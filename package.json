@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "main": "expo-router/entry",
   "dependencies": {
+    "@tanstack/react-query": "^5.101.1",
     "expo": "~54.0.0",
     "expo-constants": "~18.0.13",
     "expo-image": "~3.0.11",
