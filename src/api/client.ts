@@ -119,6 +119,11 @@ export function me(token: string) {
 
 /* --------------------------- Profiles --------------------------- */
 
+// Dados públicos de um perfil por ID (nome, @, avatar, descrição, rating).
+export function getProfile(profileId: string) {
+  return request<{ profile: Profile }>(`/profiles/${profileId}`)
+}
+
 export function getProfileTracks(profileId: string, limit = 50, offset = 0) {
   return request<{ tracks: ProfileTrack[] }>(
     `/profiles/${profileId}/tracks?limit=${limit}&offset=${offset}`

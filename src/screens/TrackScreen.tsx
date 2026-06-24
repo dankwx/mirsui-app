@@ -196,18 +196,6 @@ export default function TrackScreen({ trackId }: { trackId: string }) {
             ) : (
               <Cover seed={artistNames + t.name} size={CARD} radius={10} fontSize={84} />
             )}
-            <View style={styles.windowTag}>
-              <Ionicons name="flag" size={10} color={colors.acc} />
-              <Text style={styles.windowTagText}>Janela fechada</Text>
-            </View>
-          </View>
-
-          <View style={styles.badgeRow}>
-            <View style={styles.trendPill}>
-              <Ionicons name="trending-up" size={12} color={colors.acc} />
-              <Text style={styles.trendText}>Em alta</Text>
-            </View>
-            {details.genre && <Text style={styles.genreLabel}>{details.genre}</Text>}
           </View>
 
           <Text style={styles.title}>{t.name}</Text>
@@ -392,59 +380,13 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.line2,
   },
-  windowTag: {
-    position: 'absolute',
-    left: 12,
-    top: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    borderWidth: 1,
-    borderColor: 'rgba(205,239,54,0.4)',
-    backgroundColor: 'rgba(22,18,12,0.62)',
-    borderRadius: 999,
-    paddingHorizontal: 9,
-    paddingVertical: 4,
-  },
-  windowTagText: {
-    color: colors.acc,
-    fontSize: 9.5,
-    fontWeight: '700',
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-  },
-  badgeRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 24 },
-  trendPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    borderWidth: 1,
-    borderColor: 'rgba(205,239,54,0.4)',
-    backgroundColor: colors.accSoft,
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-  },
-  trendText: {
-    color: colors.acc,
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
-  },
-  genreLabel: {
-    color: colors.text3,
-    fontSize: 11,
-    letterSpacing: 1.4,
-    textTransform: 'uppercase',
-  },
   title: {
     color: colors.text,
     fontSize: 42,
     fontWeight: '800',
     letterSpacing: -1.8,
     lineHeight: 44,
-    marginTop: 14,
+    marginTop: 24,
   },
   artists: { color: colors.acc, fontSize: 20, fontWeight: '700', marginTop: 10, letterSpacing: -0.3 },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 14, flexWrap: 'wrap' },

@@ -41,6 +41,7 @@ function RootNavigator() {
       <Stack.Protected guard={isAuthenticated}>
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="track/[id]" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="user/[id]" options={{ animation: 'slide_from_right' }} />
       </Stack.Protected>
     </Stack>
   )

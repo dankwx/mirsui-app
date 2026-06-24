@@ -25,6 +25,7 @@ import {
   followListQuery,
   prefetchSocialLists,
   profileCommentsQuery,
+  profileInfoQuery,
   profileKeys,
   profileStatsQuery,
   profileTracksQuery,
@@ -67,17 +68,26 @@ const FILTERS: { id: Filter; label: string }[] = [
   { id: 'fav', label: 'Favoritas' },
 ]
 
-export default function ProfileScreen() {
+export default function ProfileScreen({ userId }: { userId?: string } = {}) {
   const insets = useSafeAreaInsets()
   const queryClient = useQueryClient()
-  const { profile, signOut, getValidToken } = useAuth()
+  const { profile: authProfile, signOut, getValidToken } = useAuth()
 
   const [filter, setFilter] = useState<Filter>('all')
   const [editing, setEditing] = useState(false)
   // Modal de seguidores/seguindo (null = fechado).
   const [followList, setFollowList] = useState<'followers' | 'following' | null>(null)
+  const [followBusy, setFollowBusy] = useState(false)
 
-  const profileId = profile?.id
+  // Visitante x dono: sem userId (aba Perfil) ou userId == eu → é o próprio
+  // perfil; caso contrário é a visita ao perfil de outro usuário.
+  const isSelf = !userId || userId === authProfile?.id
+  const profileId = isSelf ? authProfile?.id : userId
+
+  // Info do perfil: o dono vem do AuthContext (já em memória); o visitante busca
+  // os dados públicos por ID.
+  const infoQ = useQuery({ ...profileInfoQuery(userId ?? ''), enabled: !isSelf && !!userId })
+  const profile = isSelf ? authProfile : infoQ.data ?? null
 
   // Leitura via React Query: cache + stale-while-revalidate. Numa volta para a
   // aba dentro do staleTime, os dados vêm do cache na hora (sem reset para 0); o
@@ -88,22 +98,36 @@ export default function ProfileScreen() {
   const commentsQ = useQuery({ ...profileCommentsQuery(profileId ?? ''), enabled })
   const statsQ = useQuery({ ...profileStatsQuery(profileId ?? ''), enabled })
 
+  // Visitante: descobre se já segue este perfil reusando a lista de seguidores
+  // (mesma queryKey do modal/prefetch) — se eu estiver nela, sigo.
+  const followersQ = useQuery({
+    ...followListQuery(profileId ?? '', 'followers', getValidToken),
+    enabled: !isSelf && enabled,
+  })
+  const isFollowing =
+    !isSelf && !!authProfile?.id
+      ? followersQ.data?.some((u) => u.id === authProfile.id) ?? false
+      : false
+
   const tracks: ProfileTrack[] = tracksQ.data ?? []
   const comments: ProfileComment[] = commentsQ.data ?? []
   const social: ProfileStats = statsQ.data ?? { followers: 0, following: 0 }
 
   // "loading" só na primeira carga sem nada em cache; revalidações em background
   // não voltam a tela ao spinner.
-  const loading = enabled && (tracksQ.isLoading || commentsQ.isLoading || statsQ.isLoading)
+  const loading =
+    enabled &&
+    (tracksQ.isLoading || commentsQ.isLoading || statsQ.isLoading || (!isSelf && infoQ.isLoading))
   const refreshing = tracksQ.isRefetching || commentsQ.isRefetching || statsQ.isRefetching
-  const queryError = tracksQ.error || commentsQ.error || statsQ.error
-  const error = queryError ? queryError.message || 'Não foi possível carregar seu perfil.' : null
+  const queryError = tracksQ.error || commentsQ.error || statsQ.error || (!isSelf && infoQ.error)
+  const error = queryError ? queryError.message || 'Não foi possível carregar este perfil.' : null
 
   const reload = useCallback(() => {
     tracksQ.refetch()
     commentsQ.refetch()
     statsQ.refetch()
-  }, [tracksQ, commentsQ, statsQ])
+    if (!isSelf) infoQ.refetch()
+  }, [tracksQ, commentsQ, statsQ, infoQ, isSelf])
 
   // Aquece seguidores/seguindo em background para o modal abrir instantâneo já
   // na primeira vez.
@@ -141,6 +165,51 @@ export default function ProfileScreen() {
     if (!profileId) return
     queryClient.invalidateQueries({ queryKey: profileStatsQuery(profileId).queryKey })
   }, [profileId, queryClient])
+
+  // Seguir / deixar de seguir o perfil visitado (botão no topo). Otimista: mexe
+  // na lista de seguidores (mesma key do modal) e no contador, com rollback.
+  const toggleFollowTarget = useCallback(async () => {
+    if (isSelf || !profileId || !authProfile?.id) return
+    const next = !isFollowing
+    setFollowBusy(true)
+    const followersKey = profileKeys.followers(profileId)
+    const statsKey = profileStatsQuery(profileId).queryKey
+    const prevFollowers = queryClient.getQueryData<FollowUser[]>(followersKey)
+    const prevStats = queryClient.getQueryData<ProfileStats>(statsKey)
+    queryClient.setQueryData<FollowUser[]>(followersKey, (old) => {
+      const list = old ?? []
+      if (next) {
+        if (list.some((u) => u.id === authProfile.id)) return list
+        return [
+          {
+            id: authProfile.id,
+            username: authProfile.username ?? null,
+            display_name: authProfile.display_name ?? null,
+            avatar_url: authProfile.avatar_url ?? null,
+            rating: authProfile.rating ?? null,
+            isFollowing: false,
+          },
+          ...list,
+        ]
+      }
+      return list.filter((u) => u.id !== authProfile.id)
+    })
+    queryClient.setQueryData<ProfileStats>(statsKey, (old) =>
+      old ? { ...old, followers: Math.max(0, old.followers + (next ? 1 : -1)) } : old
+    )
+    try {
+      const token = await getValidToken()
+      if (!token) throw new ApiError('Sessão expirada. Entre de novo.', 401)
+      if (next) await api.followUser(profileId, token)
+      else await api.unfollowUser(profileId, token)
+    } catch (e) {
+      queryClient.setQueryData(followersKey, prevFollowers)
+      queryClient.setQueryData(statsKey, prevStats)
+      Alert.alert('Ops', e instanceof ApiError ? e.message : 'Não foi possível atualizar.')
+    } finally {
+      setFollowBusy(false)
+    }
+  }, [isSelf, profileId, authProfile, isFollowing, queryClient, getValidToken])
 
   async function handleShare() {
     try {
@@ -204,19 +273,24 @@ export default function ProfileScreen() {
   }
 
   function openTrackMenu(track: ProfileTrack) {
-    Alert.alert(track.track_title, track.artist_name, [
-      {
+    // Visitante só pode abrir a faixa; favoritar/remover é coisa do dono.
+    const buttons: { text: string; style?: 'cancel' | 'destructive'; onPress?: () => void }[] = []
+    if (isSelf) {
+      buttons.push({
         text: track.is_favorited ? 'Remover dos favoritos' : 'Adicionar aos favoritos',
         onPress: () => toggleFavorite(track),
-      },
-      { text: 'Ver no Mirsui', onPress: () => openTrack(track) },
-      {
-        text: 'Abrir no Spotify',
-        onPress: () => track.track_url && Linking.openURL(track.track_url),
-      },
-      { text: 'Remover do acervo', style: 'destructive', onPress: () => confirmRemove(track) },
-      { text: 'Cancelar', style: 'cancel' },
-    ])
+      })
+    }
+    buttons.push({ text: 'Ver no Mirsui', onPress: () => openTrack(track) })
+    buttons.push({
+      text: 'Abrir no Spotify',
+      onPress: () => track.track_url && Linking.openURL(track.track_url),
+    })
+    if (isSelf) {
+      buttons.push({ text: 'Remover do acervo', style: 'destructive', onPress: () => confirmRemove(track) })
+    }
+    buttons.push({ text: 'Cancelar', style: 'cancel' })
+    Alert.alert(track.track_title, track.artist_name, buttons)
   }
 
   // Abre a página de track interna; cai no Spotify se não der pra extrair o id.
@@ -235,6 +309,14 @@ export default function ProfileScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.acc} />
         }
       >
+        {/* visitante: botão de voltar (a aba do próprio perfil não tem) */}
+        {!isSelf && (
+          <Pressable style={styles.back} onPress={() => router.back()} hitSlop={10}>
+            <Ionicons name="arrow-back" size={15} color={colors.text3} />
+            <Text style={styles.backText}>VOLTAR</Text>
+          </Pressable>
+        )}
+
         {/* faixa de edição */}
         <View style={styles.editionStrip}>
           <Text style={styles.editionText}>PERFIL Nº {profileNo}</Text>
@@ -285,12 +367,29 @@ export default function ProfileScreen() {
 
           {/* ações */}
           <View style={styles.actions}>
-            <Button
-              label="Editar perfil"
-              onPress={() => setEditing(true)}
-              style={{ flex: 1 }}
-              icon={<Ionicons name="pencil" size={15} color={colors.onAcc} />}
-            />
+            {isSelf ? (
+              <Button
+                label="Editar perfil"
+                onPress={() => setEditing(true)}
+                style={{ flex: 1 }}
+                icon={<Ionicons name="pencil" size={15} color={colors.onAcc} />}
+              />
+            ) : (
+              <Button
+                label={isFollowing ? 'Seguindo' : 'Seguir'}
+                variant={isFollowing ? 'ghost' : 'acc'}
+                onPress={toggleFollowTarget}
+                loading={followBusy}
+                style={{ flex: 1 }}
+                icon={
+                  <Ionicons
+                    name={isFollowing ? 'checkmark' : 'person-add'}
+                    size={15}
+                    color={isFollowing ? colors.text2 : colors.onAcc}
+                  />
+                }
+              />
+            )}
             <Button
               label="Compartilhar"
               variant="ghost"
@@ -404,29 +503,35 @@ export default function ProfileScreen() {
           </>
         )}
 
-        <View style={{ paddingHorizontal: GUTTER }}>
-          <Button
-            label="Sair da conta"
-            variant="ghost"
-            onPress={signOut}
-            style={{ marginTop: 12 }}
-            icon={<Ionicons name="log-out-outline" size={18} color={colors.text2} />}
-          />
-        </View>
+        {isSelf && (
+          <View style={{ paddingHorizontal: GUTTER }}>
+            <Button
+              label="Sair da conta"
+              variant="ghost"
+              onPress={signOut}
+              style={{ marginTop: 12 }}
+              icon={<Ionicons name="log-out-outline" size={18} color={colors.text2} />}
+            />
+          </View>
+        )}
       </ScrollView>
 
-      {profile ? (
-        <EditProfileModal visible={editing} profile={profile} onClose={() => setEditing(false)} />
+      {isSelf && authProfile ? (
+        <EditProfileModal visible={editing} profile={authProfile} onClose={() => setEditing(false)} />
       ) : null}
 
       {profileId ? (
         <FollowListModal
           type={followList}
           profileId={profileId}
-          currentUserId={profileId}
+          currentUserId={authProfile?.id ?? ''}
           getValidToken={getValidToken}
           onClose={() => setFollowList(null)}
           onChanged={refreshStats}
+          onOpenUser={(id) => {
+            setFollowList(null)
+            router.push(`/user/${id}`)
+          }}
         />
       ) : null}
     </View>
@@ -464,6 +569,7 @@ function FollowListModal({
   getValidToken,
   onClose,
   onChanged,
+  onOpenUser,
 }: {
   type: 'followers' | 'following' | null
   profileId: string
@@ -471,6 +577,7 @@ function FollowListModal({
   getValidToken: () => Promise<string | null>
   onClose: () => void
   onChanged: () => void
+  onOpenUser: (id: string) => void
 }) {
   const insets = useSafeAreaInsets()
   const queryClient = useQueryClient()
@@ -583,6 +690,7 @@ function FollowListModal({
                 isSelf={item.id === currentUserId}
                 busy={busyId === item.id}
                 onToggle={() => toggleFollow(item)}
+                onPress={() => onOpenUser(item.id)}
               />
             )}
             ListEmptyComponent={
@@ -602,15 +710,20 @@ function FollowRow({
   isSelf,
   busy,
   onToggle,
+  onPress,
 }: {
   user: FollowUser
   isSelf: boolean
   busy: boolean
   onToggle: () => void
+  onPress: () => void
 }) {
   const name = user.display_name || user.username || 'Usuário'
   return (
-    <View style={styles.followRow}>
+    <Pressable
+      style={({ pressed }) => [styles.followRow, pressed && { opacity: 0.7 }]}
+      onPress={onPress}
+    >
       <View style={styles.followAvatar}>
         {user.avatar_url ? (
           <Image source={{ uri: user.avatar_url }} style={styles.avatarImg} />
@@ -657,7 +770,7 @@ function FollowRow({
           )}
         </Pressable>
       )}
-    </View>
+    </Pressable>
   )
 }
 
@@ -753,6 +866,15 @@ const GUTTER = 22
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
+
+  back: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: GUTTER,
+    paddingBottom: 14,
+  },
+  backText: { color: colors.text3, fontSize: 11, fontWeight: '700', letterSpacing: 1.4 },
 
   editionStrip: {
     flexDirection: 'row',

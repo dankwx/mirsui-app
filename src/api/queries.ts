@@ -23,6 +23,7 @@ export type TokenGetter = () => Promise<string | null>
 // tudo do perfil de uma vez.
 export const profileKeys = {
   root: (id: string) => ['profile', id] as const,
+  info: (id: string) => ['profile', id, 'info'] as const,
   tracks: (id: string) => ['profile', id, 'tracks'] as const,
   comments: (id: string) => ['profile', id, 'comments'] as const,
   stats: (id: string) => ['profile', id, 'stats'] as const,
@@ -39,6 +40,13 @@ export const stakeKeys = {
   list: ['stakes'] as const,
   points: ['stakes', 'points'] as const,
 }
+
+// Dados públicos do perfil (usado ao visitar o perfil de outro usuário).
+export const profileInfoQuery = (profileId: string) =>
+  queryOptions({
+    queryKey: profileKeys.info(profileId),
+    queryFn: () => api.getProfile(profileId).then((r) => r.profile),
+  })
 
 export const profileTracksQuery = (profileId: string) =>
   queryOptions({
