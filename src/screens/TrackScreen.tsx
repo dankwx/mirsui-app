@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import {
-  ActivityIndicator,
   Pressable,
   ScrollView,
   Share,
@@ -16,11 +15,11 @@ import * as api from '../api/client'
 import type { TrackClaimer, TrackDetails } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
 import Cover from '../components/Cover'
-import MirsuiLogo from '../components/MirsuiLogo'
+import MirsuiLoader from '../components/MirsuiLoader'
 import TrackActions from '../components/TrackActions'
 import TrackPreviewBar from '../components/TrackPreviewBar'
 import TrackSelo from '../components/TrackSelo'
-import { Button } from '../components/ui'
+import { BackButton, Button } from '../components/ui'
 import { colors, initials } from '../theme'
 
 const MONTHS = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
@@ -148,8 +147,7 @@ export default function TrackScreen({ trackId }: { trackId: string }) {
   if (loading) {
     return (
       <View style={[styles.root, styles.center, { paddingTop: insets.top }]}>
-        <MirsuiLogo size={44} />
-        <ActivityIndicator color={colors.acc} style={{ marginTop: 16 }} />
+        <MirsuiLoader size={48} />
       </View>
     )
   }
@@ -185,10 +183,7 @@ export default function TrackScreen({ trackId }: { trackId: string }) {
       >
         {/* ===== HERO ===== */}
         <View style={styles.hero}>
-          <Pressable style={styles.back} onPress={() => router.back()} hitSlop={10}>
-            <Ionicons name="arrow-back" size={15} color={colors.text3} />
-            <Text style={styles.backText}>VOLTAR</Text>
-          </Pressable>
+          <BackButton onPress={() => router.back()} style={{ marginBottom: 16 }} />
 
           <View style={styles.coverWrap}>
             {t.album.image ? (
@@ -370,8 +365,6 @@ const styles = StyleSheet.create({
 
   /* hero */
   hero: { paddingHorizontal: 20, paddingTop: 14, paddingBottom: 32 },
-  back: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingBottom: 16 },
-  backText: { color: colors.text3, fontSize: 11, fontWeight: '700', letterSpacing: 1.4 },
   coverWrap: { width: CARD, maxWidth: '100%', alignSelf: 'center' },
   cover: {
     width: '100%',

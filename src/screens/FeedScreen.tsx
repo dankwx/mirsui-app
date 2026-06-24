@@ -17,11 +17,12 @@ import {
   type InfiniteData,
 } from '@tanstack/react-query'
 import * as api from '../api/client'
-import { feedKeys, feedQuery, recentClaimsQuery } from '../api/queries'
+import { feedKeys, feedQuery, prefetchUserProfile, recentClaimsQuery } from '../api/queries'
 import { useAuth } from '../auth/AuthContext'
 import Cover from '../components/Cover'
 import FeedItem, { FeedPostUI } from '../components/FeedItem'
 import MirsuiLogo from '../components/MirsuiLogo'
+import MirsuiLoader from '../components/MirsuiLoader'
 import { Button, Pill } from '../components/ui'
 import { timeAgo, ordLabel } from '../lib/time'
 import { spotifyTrackId } from '../lib/track'
@@ -94,6 +95,17 @@ export default function FeedScreen() {
     [queryClient, getValidToken]
   )
 
+  // Abre o perfil do autor de um post; aquece o cache antes de navegar (prefetch
+  // no item de lista — data-fetching.md), pra abrir sem flicker.
+  const openUser = useCallback(
+    (userId: string) => {
+      if (!userId) return
+      prefetchUserProfile(queryClient, userId, getValidToken)
+      router.push(`/user/${userId}`)
+    },
+    [queryClient, getValidToken]
+  )
+
   const drop = posts[0]
   const feed = useMemo(() => posts.slice(1), [posts])
   const displayName = profile?.display_name || profile?.username || user?.email || 'você'
@@ -126,7 +138,9 @@ export default function FeedScreen() {
       </View>
 
       {/* O drop de hoje */}
-      {drop && <DropSection post={drop} onToggleSave={toggleSave} onOpen={openTrack} />}
+      {drop && (
+        <DropSection post={drop} onToggleSave={toggleSave} onOpen={openTrack} onOpenUser={openUser} />
+      )}
 
       {/* Reivindicações recentes */}
       {claims.length > 0 && (
@@ -156,8 +170,7 @@ export default function FeedScreen() {
   if (loading) {
     return (
       <View style={[styles.root, styles.center, { paddingTop: insets.top }]}>
-        <MirsuiLogo size={44} />
-        <ActivityIndicator color={colors.acc} style={{ marginTop: 16 }} />
+        <MirsuiLoader size={48} />
       </View>
     )
   }
@@ -168,7 +181,7 @@ export default function FeedScreen() {
         data={feed}
         keyExtractor={(item) => String(item.id)}
         renderItem={({ item }) => (
-          <FeedItem post={item} onToggleSave={toggleSave} onOpen={openTrack} />
+          <FeedItem post={item} onToggleSave={toggleSave} onOpen={openTrack} onOpenUser={openUser} />
         )}
         ListHeaderComponent={header}
         contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: insets.bottom + 96 }}
@@ -232,10 +245,12 @@ function DropSection({
   post,
   onToggleSave,
   onOpen,
+  onOpenUser,
 }: {
   post: FeedPostUI
   onToggleSave: (post: FeedPostUI) => void
   onOpen?: (post: FeedPostUI) => void
+  onOpenUser?: (userId: string) => void
 }) {
   const who = post.display_name || post.username
   const early = typeof post.position === 'number' && post.position <= 10
@@ -255,7 +270,10 @@ function DropSection({
         <Text style={styles.dropArtist}>{post.artist_name}</Text>
       </Pressable>
       <Text style={styles.dropBody}>
-        <Text style={{ fontWeight: '700' }}>{who}</Text> achou cedo e salvou{' '}
+        <Text style={{ fontWeight: '700' }} onPress={() => onOpenUser?.(post.user_id)}>
+          {who}
+        </Text>{' '}
+        achou cedo e salvou{' '}
         {timeAgo(post.claimedat) || 'recentemente'}.{' '}
         {early
           ? 'A janela ainda está aberta — salva antes de virar tendência.'

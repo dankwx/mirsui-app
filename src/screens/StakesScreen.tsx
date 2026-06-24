@@ -28,7 +28,7 @@ import { ApiError } from '../api/client'
 import { stakeKeys, stakePointsQuery, stakesQuery } from '../api/queries'
 import type { SearchTrack, Stake } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
-import { Button } from '../components/ui'
+import { BackButton, Button } from '../components/ui'
 import { badge, fmt, formatMultiplier } from '../lib/stake'
 import { colors, tone } from '../theme'
 
@@ -977,10 +977,7 @@ function DetailView({
       }}
       keyboardShouldPersistTaps="handled"
     >
-      <Pressable onPress={onBack} hitSlop={8} style={styles.detailBack}>
-        <Ionicons name="arrow-back" size={16} color={colors.text2} />
-        <Text style={styles.detailBackText}>buscar outra</Text>
-      </Pressable>
+      <BackButton onPress={onBack} label="BUSCAR OUTRA" style={{ marginBottom: 18 }} />
 
       <View style={styles.detailHero}>
         <View style={styles.detailCover}>
@@ -1485,8 +1482,6 @@ const styles = StyleSheet.create({
   searchLoading: { alignItems: 'center', paddingTop: 40, paddingHorizontal: 30 },
 
   // detalhe
-  detailBack: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 18 },
-  detailBackText: { color: colors.text2, fontSize: 13, fontFamily: MONO },
   detailHero: { alignItems: 'center' },
   detailCover: {
     width: 230,

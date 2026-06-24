@@ -1,12 +1,12 @@
 import React from 'react'
-import { ActivityIndicator, StyleSheet, View } from 'react-native'
+import { StyleSheet, View } from 'react-native'
 import { Stack } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { AuthProvider, useAuth } from '../src/auth/AuthContext'
 import { queryClient } from '../src/api/queryClient'
-import MirsuiLogo from '../src/components/MirsuiLogo'
+import MirsuiLoader from '../src/components/MirsuiLoader'
 import { colors } from '../src/theme'
 
 // Navegador raiz: enquanto restaura a sessão, mostra um splash. Depois, as
@@ -18,8 +18,7 @@ function RootNavigator() {
   if (loading) {
     return (
       <View style={styles.splash}>
-        <MirsuiLogo size={56} />
-        <ActivityIndicator color={colors.acc} style={{ marginTop: 20 }} />
+        <MirsuiLoader size={60} />
       </View>
     )
   }

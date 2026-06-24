@@ -9,6 +9,7 @@ import {
   View,
   ViewStyle,
 } from 'react-native'
+import { Ionicons } from '@expo/vector-icons'
 import { colors } from '../theme'
 
 type ButtonVariant = 'acc' | 'light' | 'solid' | 'ghost'
@@ -73,6 +74,29 @@ export function Field({
   )
 }
 
+// Botão de voltar padrão do app: um "chip" arredondado, visível, com ícone +
+// rótulo. Aceita rótulo e estilo de posicionamento (margens) por chamada.
+export function BackButton({
+  onPress,
+  label = 'VOLTAR',
+  style,
+}: {
+  onPress?: () => void
+  label?: string
+  style?: ViewStyle
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      hitSlop={10}
+      style={({ pressed }) => [styles.back, pressed && styles.backPressed, style]}
+    >
+      <Ionicons name="arrow-back" size={17} color={colors.text} />
+      <Text style={styles.backText}>{label}</Text>
+    </Pressable>
+  )
+}
+
 export function Pill({ children, accent }: { children: React.ReactNode; accent?: boolean }) {
   return (
     <View style={[styles.pill, accent && styles.pillAccent]}>
@@ -123,6 +147,20 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   fieldError: { color: colors.danger, fontSize: 12, marginTop: 6 },
+  back: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 7,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: colors.fill2,
+    borderWidth: 1,
+    borderColor: colors.line2,
+  },
+  backPressed: { backgroundColor: colors.fill1, opacity: 0.85 },
+  backText: { color: colors.text, fontSize: 11, fontWeight: '800', letterSpacing: 1.4 },
   pill: {
     flexDirection: 'row',
     alignItems: 'center',

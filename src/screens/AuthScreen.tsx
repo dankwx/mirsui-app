@@ -13,7 +13,7 @@ import { useRouter } from 'expo-router'
 import { ApiError } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
 import MirsuiLogo from '../components/MirsuiLogo'
-import { Button, Field } from '../components/ui'
+import { BackButton, Button, Field } from '../components/ui'
 import { colors } from '../theme'
 
 type Mode = 'login' | 'signup'
@@ -97,9 +97,7 @@ export default function AuthScreen({ mode: initialMode = 'login' }: { mode?: Mod
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        <Pressable onPress={onBack} hitSlop={12} style={styles.back}>
-          <Text style={styles.backText}>← voltar</Text>
-        </Pressable>
+        <BackButton onPress={onBack} />
 
         <View style={styles.brand}>
           <MirsuiLogo size={40} />
@@ -171,8 +169,6 @@ export default function AuthScreen({ mode: initialMode = 'login' }: { mode?: Mod
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   content: { paddingHorizontal: 24, flexGrow: 1 },
-  back: { alignSelf: 'flex-start', paddingVertical: 6 },
-  backText: { color: colors.text2, fontSize: 15 },
   brand: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -32,7 +32,7 @@ import {
   profileTracksQuery,
 } from '../api/queries'
 import type { FollowUser, Profile, ProfileComment, ProfileStats, ProfileTrack } from '../api/types'
-import { Button } from '../components/ui'
+import { BackButton, Button } from '../components/ui'
 import EditProfileModal from '../components/EditProfileModal'
 import { timeAgo } from '../lib/time'
 import { spotifyTrackId } from '../lib/track'
@@ -318,10 +318,10 @@ export default function ProfileScreen({ userId }: { userId?: string } = {}) {
       >
         {/* visitante: botão de voltar (a aba do próprio perfil não tem) */}
         {!isSelf && (
-          <Pressable style={styles.back} onPress={() => router.back()} hitSlop={10}>
-            <Ionicons name="arrow-back" size={15} color={colors.text3} />
-            <Text style={styles.backText}>VOLTAR</Text>
-          </Pressable>
+          <BackButton
+            onPress={() => router.back()}
+            style={{ marginLeft: GUTTER, marginBottom: 14 }}
+          />
         )}
 
         {/* faixa de edição */}
@@ -879,15 +879,6 @@ const GUTTER = 22
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
-
-  back: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: GUTTER,
-    paddingBottom: 14,
-  },
-  backText: { color: colors.text3, fontSize: 11, fontWeight: '700', letterSpacing: 1.4 },
 
   editionStrip: {
     flexDirection: 'row',

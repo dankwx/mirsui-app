@@ -16,10 +16,12 @@ export default function FeedItem({
   post,
   onToggleSave,
   onOpen,
+  onOpenUser,
 }: {
   post: FeedPostUI
   onToggleSave: (post: FeedPostUI) => void
   onOpen?: (post: FeedPostUI) => void
+  onOpenUser?: (userId: string) => void
 }) {
   const [busy, setBusy] = useState(false)
   const who = whoOf(post)
@@ -48,18 +50,25 @@ export default function FeedItem({
 
       <View style={styles.body}>
         <View style={styles.metaRow}>
-          <View style={styles.avatar}>
-            {post.avatar_url ? (
-              <Image source={{ uri: post.avatar_url }} style={styles.avatarImg} />
-            ) : (
-              <Text style={styles.avatarIni}>
-                {(who || 'U').charAt(0).toUpperCase()}
-              </Text>
-            )}
-          </View>
-          <Text style={styles.metaText} numberOfLines={1}>
-            <Text style={styles.who}>{who}</Text> salvou
-          </Text>
+          <Pressable
+            style={({ pressed }) => [styles.author, pressed && { opacity: 0.6 }]}
+            onPress={() => onOpenUser?.(post.user_id)}
+            hitSlop={6}
+          >
+            <View style={styles.avatar}>
+              {post.avatar_url ? (
+                <Image source={{ uri: post.avatar_url }} style={styles.avatarImg} />
+              ) : (
+                <Text style={styles.avatarIni}>
+                  {(who || 'U').charAt(0).toUpperCase()}
+                </Text>
+              )}
+            </View>
+            <Text style={styles.who} numberOfLines={1}>
+              {who}
+            </Text>
+          </Pressable>
+          <Text style={styles.metaText}>salvou</Text>
           <Text style={styles.dot}>·</Text>
           <Text style={styles.time}>{timeAgo(post.claimedat)}</Text>
           {early && (
@@ -114,6 +123,7 @@ const styles = StyleSheet.create({
   },
   body: { flex: 1, minWidth: 0 },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 7, flexWrap: 'wrap' },
+  author: { flexDirection: 'row', alignItems: 'center', gap: 7, flexShrink: 1 },
   avatar: {
     width: 24,
     height: 24,
