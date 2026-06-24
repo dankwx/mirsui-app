@@ -120,8 +120,13 @@ export function me(token: string) {
 /* --------------------------- Profiles --------------------------- */
 
 // Dados públicos de um perfil por ID (nome, @, avatar, descrição, rating).
-export function getProfile(profileId: string) {
-  return request<{ profile: Profile }>(`/profiles/${profileId}`)
+// Token opcional: com ele, a resposta traz isFollowing (se eu já sigo o perfil),
+// pra a tela de visita renderizar o botão certo de cara, sem flicker.
+export function getProfile(profileId: string, token?: string) {
+  return request<{ profile: Profile; isFollowing: boolean }>(
+    `/profiles/${profileId}`,
+    { token }
+  )
 }
 
 export function getProfileTracks(profileId: string, limit = 50, offset = 0) {

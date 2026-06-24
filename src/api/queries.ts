@@ -42,10 +42,16 @@ export const stakeKeys = {
 }
 
 // Dados públicos do perfil (usado ao visitar o perfil de outro usuário).
-export const profileInfoQuery = (profileId: string) =>
+// Autenticada: o token traz o isFollowing junto, então o botão seguir/seguindo
+// já abre no estado certo (sem flash de "Seguir" antes de validar).
+export const profileInfoQuery = (profileId: string, getToken: TokenGetter) =>
   queryOptions({
     queryKey: profileKeys.info(profileId),
-    queryFn: () => api.getProfile(profileId).then((r) => r.profile),
+    queryFn: async () => {
+      const token = (await getToken()) ?? undefined
+      const { profile, isFollowing } = await api.getProfile(profileId, token)
+      return { profile, isFollowing }
+    },
   })
 
 export const profileTracksQuery = (profileId: string) =>
@@ -165,6 +171,21 @@ export function prefetchProfile(qc: QueryClient, profileId: string) {
   void qc.prefetchQuery(profileTracksQuery(profileId))
   void qc.prefetchQuery(profileCommentsQuery(profileId))
   void qc.prefetchQuery(profileStatsQuery(profileId))
+}
+
+// Aquece o perfil de OUTRO usuário antes de navegar até ele (toque numa linha de
+// seguidores/seguindo). Assim a tela /user/:id abre já com os dados em cache, sem
+// o flicker de spinner — é o "prefetch no item de lista" do data-fetching.md.
+export function prefetchUserProfile(
+  qc: QueryClient,
+  profileId: string,
+  getToken: TokenGetter
+) {
+  void qc.prefetchQuery(profileInfoQuery(profileId, getToken))
+  void qc.prefetchQuery(profileTracksQuery(profileId))
+  void qc.prefetchQuery(profileCommentsQuery(profileId))
+  void qc.prefetchQuery(profileStatsQuery(profileId))
+  prefetchSocialLists(qc, profileId, getToken)
 }
 
 // Aquece as listas sociais (seguidores/seguindo) para o modal abrir instantâneo

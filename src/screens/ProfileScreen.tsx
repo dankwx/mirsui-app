@@ -24,13 +24,14 @@ import { ApiError } from '../api/client'
 import {
   followListQuery,
   prefetchSocialLists,
+  prefetchUserProfile,
   profileCommentsQuery,
   profileInfoQuery,
   profileKeys,
   profileStatsQuery,
   profileTracksQuery,
 } from '../api/queries'
-import type { FollowUser, ProfileComment, ProfileStats, ProfileTrack } from '../api/types'
+import type { FollowUser, Profile, ProfileComment, ProfileStats, ProfileTrack } from '../api/types'
 import { Button } from '../components/ui'
 import EditProfileModal from '../components/EditProfileModal'
 import { timeAgo } from '../lib/time'
@@ -85,9 +86,17 @@ export default function ProfileScreen({ userId }: { userId?: string } = {}) {
   const profileId = isSelf ? authProfile?.id : userId
 
   // Info do perfil: o dono vem do AuthContext (já em memória); o visitante busca
-  // os dados públicos por ID.
-  const infoQ = useQuery({ ...profileInfoQuery(userId ?? ''), enabled: !isSelf && !!userId })
-  const profile = isSelf ? authProfile : infoQ.data ?? null
+  // os dados públicos por ID — a resposta já inclui o isFollowing (estado do
+  // botão seguir/seguindo), então não precisa carregar a lista de seguidores.
+  const infoQ = useQuery({
+    ...profileInfoQuery(userId ?? '', getValidToken),
+    enabled: !isSelf && !!userId,
+  })
+  const profile = isSelf ? authProfile : infoQ.data?.profile ?? null
+  const isFollowing = isSelf ? false : infoQ.data?.isFollowing ?? false
+  // Sem dado em cache ainda (visita sem prefetch): segura o botão num placeholder
+  // neutro em vez de mostrar "Seguir" e depois pular para "Seguindo".
+  const followStateLoading = !isSelf && infoQ.isLoading
 
   // Leitura via React Query: cache + stale-while-revalidate. Numa volta para a
   // aba dentro do staleTime, os dados vêm do cache na hora (sem reset para 0); o
@@ -97,17 +106,6 @@ export default function ProfileScreen({ userId }: { userId?: string } = {}) {
   const tracksQ = useQuery({ ...profileTracksQuery(profileId ?? ''), enabled })
   const commentsQ = useQuery({ ...profileCommentsQuery(profileId ?? ''), enabled })
   const statsQ = useQuery({ ...profileStatsQuery(profileId ?? ''), enabled })
-
-  // Visitante: descobre se já segue este perfil reusando a lista de seguidores
-  // (mesma queryKey do modal/prefetch) — se eu estiver nela, sigo.
-  const followersQ = useQuery({
-    ...followListQuery(profileId ?? '', 'followers', getValidToken),
-    enabled: !isSelf && enabled,
-  })
-  const isFollowing =
-    !isSelf && !!authProfile?.id
-      ? followersQ.data?.some((u) => u.id === authProfile.id) ?? false
-      : false
 
   const tracks: ProfileTrack[] = tracksQ.data ?? []
   const comments: ProfileComment[] = commentsQ.data ?? []
@@ -166,16 +164,22 @@ export default function ProfileScreen({ userId }: { userId?: string } = {}) {
     queryClient.invalidateQueries({ queryKey: profileStatsQuery(profileId).queryKey })
   }, [profileId, queryClient])
 
-  // Seguir / deixar de seguir o perfil visitado (botão no topo). Otimista: mexe
-  // na lista de seguidores (mesma key do modal) e no contador, com rollback.
+  // Seguir / deixar de seguir o perfil visitado (botão no topo). Otimista: vira
+  // o isFollowing (info), o contador (stats) e a lista de seguidores (mesma key
+  // do modal) na hora, com rollback se a request falhar.
   const toggleFollowTarget = useCallback(async () => {
     if (isSelf || !profileId || !authProfile?.id) return
     const next = !isFollowing
     setFollowBusy(true)
+    const infoKey = profileKeys.info(profileId)
     const followersKey = profileKeys.followers(profileId)
     const statsKey = profileStatsQuery(profileId).queryKey
+    const prevInfo = queryClient.getQueryData<{ profile: Profile; isFollowing: boolean }>(infoKey)
     const prevFollowers = queryClient.getQueryData<FollowUser[]>(followersKey)
     const prevStats = queryClient.getQueryData<ProfileStats>(statsKey)
+    queryClient.setQueryData<{ profile: Profile; isFollowing: boolean }>(infoKey, (old) =>
+      old ? { ...old, isFollowing: next } : old
+    )
     queryClient.setQueryData<FollowUser[]>(followersKey, (old) => {
       const list = old ?? []
       if (next) {
@@ -202,7 +206,10 @@ export default function ProfileScreen({ userId }: { userId?: string } = {}) {
       if (!token) throw new ApiError('Sessão expirada. Entre de novo.', 401)
       if (next) await api.followUser(profileId, token)
       else await api.unfollowUser(profileId, token)
+      // meu próprio contador de "Seguindo" mudou → revalida na próxima vez
+      queryClient.invalidateQueries({ queryKey: profileKeys.stats(authProfile.id) })
     } catch (e) {
+      queryClient.setQueryData(infoKey, prevInfo)
       queryClient.setQueryData(followersKey, prevFollowers)
       queryClient.setQueryData(statsKey, prevStats)
       Alert.alert('Ops', e instanceof ApiError ? e.message : 'Não foi possível atualizar.')
@@ -374,6 +381,9 @@ export default function ProfileScreen({ userId }: { userId?: string } = {}) {
                 style={{ flex: 1 }}
                 icon={<Ionicons name="pencil" size={15} color={colors.onAcc} />}
               />
+            ) : followStateLoading ? (
+              // placeholder neutro até saber o estado real (sem flash de "Seguir")
+              <Button label="" variant="ghost" loading style={{ flex: 1 }} />
             ) : (
               <Button
                 label={isFollowing ? 'Seguindo' : 'Seguir'}
@@ -529,6 +539,9 @@ export default function ProfileScreen({ userId }: { userId?: string } = {}) {
           onClose={() => setFollowList(null)}
           onChanged={refreshStats}
           onOpenUser={(id) => {
+            // aquece o perfil de destino antes de navegar (prefetch no item de
+            // lista — data-fetching.md), pra abrir sem flicker de spinner
+            prefetchUserProfile(queryClient, id, getValidToken)
             setFollowList(null)
             router.push(`/user/${id}`)
           }}
