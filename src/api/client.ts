@@ -1,14 +1,21 @@
 import { API_URL } from '../config'
 import type {
   AuthResponse,
+  ClaimResult,
   FeedPost,
+  PlaceStakeResult,
   Profile,
   ProfileComment,
   ProfileStats,
   ProfileTrack,
   RecentClaim,
+  RecolherResult,
+  SearchTrack,
+  Stake,
+  StakePreview,
   SupabaseSession,
   SupabaseUser,
+  TrackDetails,
 } from './types'
 
 export class ApiError extends Error {
@@ -153,6 +160,33 @@ export function uploadAvatar(
 
 /* ----------------------------- Tracks --------------------------- */
 
+// Detalhes completos da faixa para a página de track. Token opcional: quando
+// presente, a resposta inclui o status de claim do próprio usuário.
+export function getTrackDetails(spotifyId: string, token?: string) {
+  return request<TrackDetails>(`/tracks/spotify/${spotifyId}`, { token })
+}
+
+// Reivindicar uma faixa (claim). O backend calcula a posição.
+export function claimTrack(
+  body: {
+    trackUri: string
+    trackName: string
+    artistName: string
+    albumName: string
+    spotifyUrl: string
+    trackThumbnail: string
+    popularity: number
+    claimMessage?: string
+  },
+  token: string
+) {
+  return request<ClaimResult>('/tracks/claim', {
+    method: 'POST',
+    token,
+    body: JSON.stringify(body),
+  })
+}
+
 export function favoriteTrack(trackId: number, token: string) {
   return request<{ success: boolean; is_favorited: boolean }>(
     `/tracks/${trackId}/favorite`,
@@ -211,4 +245,61 @@ export function unlikeTrack(trackId: number, token: string) {
       token,
     }
   )
+}
+
+/* ----------------------------- Stakes --------------------------- */
+
+// Busca faixas no Spotify (capa/metadados/ISRC) para escolher no stake.
+export function searchTracks(query: string, limit = 10) {
+  return request<{ tracks: SearchTrack[] }>(
+    `/tracks/search?q=${encodeURIComponent(query)}&limit=${limit}`
+  )
+}
+
+// Lista os stakes ativos/removidos do usuário (ver Stake.md).
+export function getStakes(token: string) {
+  return request<{ stakes: Stake[]; maxSlots: number }>('/stakes', { token })
+}
+
+// Prévia do multiplicador antes de dar stake (resolve no Deezer na hora).
+export function getStakePreview(
+  params: { isrc?: string | null; artist: string; title: string },
+  token: string
+) {
+  const qs = new URLSearchParams({ artist: params.artist, title: params.title })
+  if (params.isrc) qs.set('isrc', params.isrc)
+  return request<StakePreview>(`/stakes/preview?${qs.toString()}`, { token })
+}
+
+// Dá stake numa faixa. O multiplicador oficial é calculado e travado no backend.
+export function placeStake(
+  body: {
+    trackId: string
+    trackUri: string
+    trackTitle: string
+    artistName: string
+    albumName?: string
+    trackThumbnail?: string
+    isrc?: string
+  },
+  token: string
+) {
+  return request<PlaceStakeResult>('/stakes', {
+    method: 'POST',
+    token,
+    body: JSON.stringify(body),
+  })
+}
+
+// Recolhe um stake: coleta os pontos se >= 7 dias, senão só libera a vaga.
+export function recolherStake(stakeId: string, token: string) {
+  return request<RecolherResult>(`/stakes/${stakeId}/recolher`, {
+    method: 'POST',
+    token,
+  })
+}
+
+// Total de pontos recolhidos pelo usuário (sistema isolado de Stakes).
+export function getStakePoints(token: string) {
+  return request<{ total: number }>('/stakes/points', { token })
 }

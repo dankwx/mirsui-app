@@ -15,9 +15,11 @@ function whoOf(post: FeedPost) {
 export default function FeedItem({
   post,
   onToggleSave,
+  onOpen,
 }: {
   post: FeedPostUI
   onToggleSave: (post: FeedPostUI) => void
+  onOpen?: (post: FeedPostUI) => void
 }) {
   const [busy, setBusy] = useState(false)
   const who = whoOf(post)
@@ -35,12 +37,14 @@ export default function FeedItem({
 
   return (
     <View style={styles.row}>
-      <Cover
-        seed={post.artist_name}
-        thumbnail={post.track_thumbnail}
-        size={84}
-        radius={9}
-      />
+      <Pressable onPress={() => onOpen?.(post)}>
+        <Cover
+          seed={post.artist_name}
+          thumbnail={post.track_thumbnail}
+          size={84}
+          radius={9}
+        />
+      </Pressable>
 
       <View style={styles.body}>
         <View style={styles.metaRow}>
@@ -67,12 +71,14 @@ export default function FeedItem({
           )}
         </View>
 
-        <Text style={styles.title} numberOfLines={1}>
-          {post.track_title}
-        </Text>
-        <Text style={styles.artist} numberOfLines={1}>
-          {post.artist_name}
-        </Text>
+        <Pressable onPress={() => onOpen?.(post)}>
+          <Text style={styles.title} numberOfLines={1}>
+            {post.track_title}
+          </Text>
+          <Text style={styles.artist} numberOfLines={1}>
+            {post.artist_name}
+          </Text>
+        </Pressable>
 
         <View style={styles.footer}>
           <Text style={[styles.stat, early && { color: colors.acc }]}>

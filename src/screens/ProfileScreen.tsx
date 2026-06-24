@@ -13,6 +13,7 @@ import {
 } from 'react-native'
 import { Image } from 'expo-image'
 import { Ionicons } from '@expo/vector-icons'
+import { router } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useAuth } from '../auth/AuthContext'
 import * as api from '../api/client'
@@ -20,6 +21,7 @@ import type { ProfileComment, ProfileTrack } from '../api/types'
 import { Button } from '../components/ui'
 import EditProfileModal from '../components/EditProfileModal'
 import { timeAgo } from '../lib/time'
+import { spotifyTrackId } from '../lib/track'
 import { colors, initials } from '../theme'
 
 const MONTHS_UP = ['JAN', 'FEV', 'MAR', 'ABR', 'MAI', 'JUN', 'JUL', 'AGO', 'SET', 'OUT', 'NOV', 'DEZ']
@@ -173,13 +175,22 @@ export default function ProfileScreen() {
         text: track.is_favorited ? 'Remover dos favoritos' : 'Adicionar aos favoritos',
         onPress: () => toggleFavorite(track),
       },
-      { text: 'Abrir faixa', onPress: () => track.track_url && Linking.openURL(track.track_url) },
+      { text: 'Ver no Mirsui', onPress: () => openTrack(track) },
+      {
+        text: 'Abrir no Spotify',
+        onPress: () => track.track_url && Linking.openURL(track.track_url),
+      },
       { text: 'Remover do acervo', style: 'destructive', onPress: () => confirmRemove(track) },
       { text: 'Cancelar', style: 'cancel' },
     ])
   }
 
-  const openTrack = (track: ProfileTrack) => track.track_url && Linking.openURL(track.track_url)
+  // Abre a página de track interna; cai no Spotify se não der pra extrair o id.
+  const openTrack = (track: ProfileTrack) => {
+    const id = spotifyTrackId(track)
+    if (id) router.push(`/track/${id}`)
+    else if (track.track_url) Linking.openURL(track.track_url)
+  }
 
   return (
     <View style={styles.root}>

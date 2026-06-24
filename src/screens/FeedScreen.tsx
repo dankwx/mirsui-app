@@ -9,6 +9,7 @@ import {
   View,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { router } from 'expo-router'
 import * as api from '../api/client'
 import type { FeedPost, RecentClaim } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
@@ -17,7 +18,14 @@ import FeedItem, { FeedPostUI } from '../components/FeedItem'
 import MirsuiLogo from '../components/MirsuiLogo'
 import { Button, Pill } from '../components/ui'
 import { timeAgo, ordLabel } from '../lib/time'
+import { spotifyTrackId } from '../lib/track'
 import { colors } from '../theme'
+
+// Navega até a página de track a partir de qualquer item que tenha uri/url.
+function openTrack(item: { track_uri?: string | null; track_url?: string | null }) {
+  const id = spotifyTrackId(item)
+  if (id) router.push(`/track/${id}`)
+}
 
 const PAGE = 5
 
@@ -161,14 +169,14 @@ export default function FeedScreen() {
       </View>
 
       {/* O drop de hoje */}
-      {drop && <DropSection post={drop} onToggleSave={toggleSave} />}
+      {drop && <DropSection post={drop} onToggleSave={toggleSave} onOpen={openTrack} />}
 
       {/* Reivindicações recentes */}
       {claims.length > 0 && (
         <View style={styles.claimsBox}>
           <Text style={styles.claimsTitle}>Reivindicações recentes</Text>
           {claims.map((c) => (
-            <View key={c.id} style={styles.claimRow}>
+            <Pressable key={c.id} style={styles.claimRow} onPress={() => openTrack(c)}>
               <Cover seed={c.artist_name} thumbnail={c.track_thumbnail} size={40} radius={7} />
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Text style={styles.claimTrack} numberOfLines={1}>
@@ -179,7 +187,7 @@ export default function FeedScreen() {
                 </Text>
               </View>
               <Text style={styles.claimAgo}>{timeAgo(c.claimedat)}</Text>
-            </View>
+            </Pressable>
           ))}
         </View>
       )}
@@ -202,7 +210,9 @@ export default function FeedScreen() {
       <FlatList
         data={feed}
         keyExtractor={(item) => String(item.id)}
-        renderItem={({ item }) => <FeedItem post={item} onToggleSave={toggleSave} />}
+        renderItem={({ item }) => (
+          <FeedItem post={item} onToggleSave={toggleSave} onOpen={openTrack} />
+        )}
         ListHeaderComponent={header}
         contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: insets.bottom + 96 }}
         showsVerticalScrollIndicator={false}
@@ -264,9 +274,11 @@ function Ticker({ posts }: { posts: FeedPostUI[] }) {
 function DropSection({
   post,
   onToggleSave,
+  onOpen,
 }: {
   post: FeedPostUI
   onToggleSave: (post: FeedPostUI) => void
+  onOpen?: (post: FeedPostUI) => void
 }) {
   const who = post.display_name || post.username
   const early = typeof post.position === 'number' && post.position <= 10
@@ -274,15 +286,17 @@ function DropSection({
   return (
     <View style={styles.drop}>
       <Text style={styles.dropKicker}>★ O DROP DE HOJE</Text>
-      <Cover
-        seed={post.artist_name}
-        thumbnail={post.track_thumbnail}
-        size={200}
-        radius={12}
-        fontSize={72}
-      />
-      <Text style={styles.dropTitle}>{post.track_title}</Text>
-      <Text style={styles.dropArtist}>{post.artist_name}</Text>
+      <Pressable onPress={() => onOpen?.(post)}>
+        <Cover
+          seed={post.artist_name}
+          thumbnail={post.track_thumbnail}
+          size={200}
+          radius={12}
+          fontSize={72}
+        />
+        <Text style={styles.dropTitle}>{post.track_title}</Text>
+        <Text style={styles.dropArtist}>{post.artist_name}</Text>
+      </Pressable>
       <Text style={styles.dropBody}>
         <Text style={{ fontWeight: '700' }}>{who}</Text> achou cedo e salvou{' '}
         {timeAgo(post.claimedat) || 'recentemente'}.{' '}

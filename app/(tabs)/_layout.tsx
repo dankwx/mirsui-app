@@ -31,11 +31,11 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="library"
+        name="stakes"
         options={{
-          title: 'Biblioteca',
+          title: 'Stakes',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="bookmark-outline" color={color} size={size} />
+            <Ionicons name="trending-up-outline" color={color} size={size} />
           ),
         }}
       />

@@ -1,4 +1,5 @@
 import Constants from 'expo-constants'
+import { Platform } from 'react-native'
 
 // Porta em que o backend Fastify (mirsui-backend) escuta.
 const BACKEND_PORT = 3000
@@ -16,6 +17,13 @@ const PRODUCTION_API_URL = ''
  * Se o backend estiver em outra máquina, defina API_URL manualmente abaixo.
  */
 function resolveDevApiUrl(): string {
+  // Na web o app roda no navegador: usamos o mesmo host pelo qual ele foi aberto
+  // (localhost ou IP da LAN). "10.0.2.2" e o hostUri do Metro não fazem sentido
+  // num browser e levam a ERR_CONNECTION_TIMED_OUT.
+  if (Platform.OS === 'web' && typeof window !== 'undefined') {
+    return `http://${window.location.hostname}:${BACKEND_PORT}`
+  }
+
   // hostUri tem a forma "192.168.0.10:8081" (Expo SDK novo) ou via debuggerHost.
   const c = Constants as any
   const hostUri: string | undefined =

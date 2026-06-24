@@ -56,9 +56,9 @@ app/
 ├── login.tsx          # "/login"   → login
 ├── signup.tsx         # "/signup"  → cadastro
 └── (tabs)/            # área logada (protegida) com tab bar
-    ├── _layout.tsx    # Tabs: Feed · Biblioteca · Perfil
+    ├── _layout.tsx    # Tabs: Feed · Stakes · Perfil
     ├── feed.tsx       # "/feed"     → feed
-    ├── library.tsx    # "/library"  → biblioteca (placeholder)
+    ├── stakes.tsx     # "/stakes"   → stakes (dar/recolher stake em faixas)
     └── profile.tsx    # "/profile"  → perfil + sair
 ```
 
@@ -81,11 +81,12 @@ src/
 │   └── AuthContext.tsx      # Estado de auth, restore no boot, refresh de token
 ├── components/              # Logo, Cover, FeedItem, primitivos de UI
 ├── lib/time.ts              # Formatação de "há X tempo" (pt-BR)
+├── lib/stake.ts             # Helpers de apresentação dos Stakes (multiplicador, selo)
 └── screens/
     ├── LandingScreen.tsx    # Inicial deslogada
     ├── AuthScreen.tsx       # Login / cadastro
     ├── FeedScreen.tsx       # Feed logado
-    ├── LibraryScreen.tsx    # Biblioteca (placeholder)
+    ├── StakesScreen.tsx     # Stakes (dar/recolher stake em faixas)
     └── ProfileScreen.tsx    # Perfil + sair
 ```
 
@@ -102,9 +103,15 @@ src/
 | Reivindicações recentes | `GET /feed/recent-claims` |
 | Likes do usuário | `POST /feed/user-likes` |
 | Salvar / remover | `POST` / `DELETE /tracks/:id/like` |
+| Buscar faixa (Spotify) | `GET /tracks/search?q&limit` |
+| Listar stakes | `GET /stakes` |
+| Prévia do multiplicador | `GET /stakes/preview?isrc&artist&title` |
+| Dar stake | `POST /stakes` |
+| Recolher stake | `POST /stakes/:id/recolher` |
+| Total de pontos | `GET /stakes/points` |
 
 ## Próximos passos sugeridos
 
-- Telas de faixa, perfil, biblioteca e reivindicar (claim).
+- Telas de faixa, perfil e reivindicar (claim).
 - Confirmação de email no fluxo de cadastro (o backend pode exigir).
 - Push notifications e deep links.
