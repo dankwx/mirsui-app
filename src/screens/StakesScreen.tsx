@@ -29,7 +29,8 @@ import { stakeKeys, stakePointsQuery, stakesQuery } from '../api/queries'
 import type { SearchTrack, Stake } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
 import { BackButton, Button } from '../components/ui'
-import { badge, fmt, formatMultiplier } from '../lib/stake'
+import StakeChartModal from '../components/StakeChartModal'
+import { badge, fmt, formatMultiplier, movement } from '../lib/stake'
 import { colors, tone } from '../theme'
 
 // Regras da feature (ver Stake.md): 3 vagas e coleta só libera após 7 dias.
@@ -209,6 +210,9 @@ export default function StakesScreen() {
   const [focused, setFocused] = useState(0)
   const cardAnim = useRef(new Animated.Value(1)).current
 
+  // stake com o gráfico de evolução aberto
+  const [chartStake, setChartStake] = useState<Stake | null>(null)
+
   const reload = useCallback(() => {
     stakesQ.refetch()
     pointsQ.refetch()
@@ -383,6 +387,7 @@ export default function StakesScreen() {
                   open={!!openInfo[focusedSlot.id]}
                   onToggleInfo={() => toggleInfo(focusedSlot.id)}
                   onRecolher={() => recolher(focusedSlot)}
+                  onOpenChart={() => setChartStake(focusedSlot)}
                 />
               ) : (
                 <EmptySlot
@@ -433,6 +438,22 @@ export default function StakesScreen() {
         getValidToken={getValidToken}
         onError={(m) => show(m, 'err')}
       />
+
+      {/* MODAL DO GRÁFICO */}
+      {chartStake && (
+        <StakeChartModal
+          stakeId={chartStake.id}
+          title={chartStake.track_title}
+          artist={chartStake.artist_name}
+          baseline={chartStake.baseline_popularity}
+          current={chartStake.last_popularity}
+          multiplier={Number(chartStake.multiplier)}
+          accumulatedPoints={chartStake.accumulated_points}
+          initialSnapshots={chartStake.snapshots}
+          getValidToken={getValidToken}
+          onClose={() => setChartStake(null)}
+        />
+      )}
     </View>
   )
 }
@@ -469,6 +490,7 @@ function FilledSlot({
   open,
   onToggleInfo,
   onRecolher,
+  onOpenChart,
 }: {
   stake: Stake
   index: number
@@ -476,12 +498,14 @@ function FilledSlot({
   open: boolean
   onToggleInfo: () => void
   onRecolher: () => void
+  onOpenChart: () => void
 }) {
   const vaga = '0' + (index + 1)
   const removida = s.status === 'removida'
   const podeColetar = s.can_collect
   const mult = Number(s.multiplier)
   const b = badge(s.baseline_popularity)
+  const mv = removida ? null : movement(s)
 
   const statusDot = removida ? '#8a8175' : podeColetar ? colors.acc : '#e0a84a'
   const statusLabel = removida
@@ -550,6 +574,52 @@ function FilledSlot({
         <Text style={styles.artistName} numberOfLines={1}>
           {s.artist_name}
         </Text>
+
+        {/* MOVIMENTO: por que deu (ou não) pontos. Toque → abre o gráfico. */}
+        {mv && (
+          <Pressable
+            onPress={onOpenChart}
+            style={({ pressed }) => [
+              styles.moveCard,
+              pressed && { opacity: 0.85 },
+            ]}
+          >
+            <View
+              style={[
+                styles.moveArrow,
+                {
+                  backgroundColor:
+                    mv.tone === 'flat' ? colors.fill2 : `${mv.color}1f`,
+                },
+              ]}
+            >
+              <Text style={[styles.moveArrowText, { color: mv.color }]}>
+                {mv.arrow}
+              </Text>
+            </View>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text
+                style={[
+                  styles.moveHeadline,
+                  { color: mv.tone === 'flat' ? colors.text : mv.color },
+                ]}
+                numberOfLines={1}
+              >
+                {mv.headline}
+              </Text>
+              <Text style={styles.moveSub} numberOfLines={1}>
+                {mv.sub}
+              </Text>
+            </View>
+            {mv.delta !== 0 && (
+              <Text style={[styles.moveDelta, { color: mv.color }]}>
+                {mv.delta > 0 ? '+' : ''}
+                {mv.delta}
+              </Text>
+            )}
+            <Ionicons name="bar-chart" size={16} color={colors.text3} />
+          </Pressable>
+        )}
 
         {/* AÇÃO */}
         <View style={styles.actionWrap}>
@@ -639,19 +709,32 @@ function FilledSlot({
 
             <View>
               <View style={styles.popRow}>
+                <Text style={styles.infoLabelSm}>POPULARIDADE</Text>
                 <Text style={styles.infoLabelSm}>
-                  POPULARIDADE QUANDO DEU STAKE
+                  {Math.round(s.baseline_popularity)} no stake →{' '}
+                  {Math.round(s.last_popularity)} agora
                 </Text>
-                <Text style={styles.infoLabelSm}>agora {s.last_popularity}</Text>
               </View>
               <View style={styles.popTrack}>
                 <View
                   style={[
                     styles.popFill,
-                    { width: `${Math.min(100, s.baseline_popularity)}%` },
+                    {
+                      width: `${Math.min(100, s.last_popularity)}%`,
+                      backgroundColor: mv?.color ?? 'rgba(236,227,210,0.9)',
+                    },
+                  ]}
+                />
+                <View
+                  style={[
+                    styles.popMarker,
+                    { left: `${Math.min(100, s.baseline_popularity)}%` },
                   ]}
                 />
               </View>
+              <Text style={styles.popCaption}>
+                a marca vertical é onde estava quando você deu stake
+              </Text>
             </View>
 
             <Text style={styles.infoFoot}>
@@ -1294,6 +1377,36 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
 
+  // bloco de movimento (clicável → gráfico)
+  moveCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginTop: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.fill1,
+  },
+  moveArrow: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  moveArrowText: { fontSize: 16, fontWeight: '700' },
+  moveHeadline: { fontSize: 13.5, fontWeight: '700', letterSpacing: -0.2 },
+  moveSub: {
+    color: colors.text3,
+    fontSize: 10.5,
+    fontFamily: MONO,
+    marginTop: 2,
+  },
+  moveDelta: { fontSize: 12, fontWeight: '700', fontFamily: MONO },
+
   actionWrap: { marginTop: 16 },
   helper: {
     color: colors.text3,
@@ -1371,12 +1484,28 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   popTrack: {
-    height: 4,
-    borderRadius: 2,
+    height: 6,
+    borderRadius: 3,
     backgroundColor: 'rgba(236,227,210,0.2)',
-    overflow: 'hidden',
+    position: 'relative',
   },
-  popFill: { height: '100%', borderRadius: 2, backgroundColor: 'rgba(236,227,210,0.9)' },
+  popFill: { height: '100%', borderRadius: 3, backgroundColor: 'rgba(236,227,210,0.9)' },
+  popMarker: {
+    position: 'absolute',
+    top: -2.5,
+    bottom: -2.5,
+    width: 2,
+    marginLeft: -1,
+    borderRadius: 1,
+    backgroundColor: 'rgba(236,227,210,0.6)',
+  },
+  popCaption: {
+    color: colors.text3,
+    fontSize: 9,
+    fontFamily: MONO,
+    marginTop: 6,
+    lineHeight: 13,
+  },
   infoFoot: { color: colors.text2, fontSize: 11.5, lineHeight: 17, fontFamily: MONO },
 
   // toast

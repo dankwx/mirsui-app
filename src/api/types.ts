@@ -164,6 +164,14 @@ export interface StakePreview {
   multiplier?: number
 }
 
+// Ponto da série diária de popularidade de um stake (pro gráfico de evolução).
+export interface StakeSnapshot {
+  date: string
+  popularity: number
+  dayGain: number
+  pointsGain: number
+}
+
 // GET /stakes → um stake do usuário (ver Stake.md)
 export interface Stake {
   id: string
@@ -186,6 +194,8 @@ export interface Stake {
   days_to_collect: number
   can_collect: boolean
   pessoas_deram_stake: number
+  // série diária pro gráfico (vem junto do GET /stakes → abre instantâneo)
+  snapshots?: StakeSnapshot[]
 }
 
 // POST /stakes → stake recém-criado

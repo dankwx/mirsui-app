@@ -14,6 +14,7 @@ import type {
   SearchTrack,
   Stake,
   StakePreview,
+  StakeSnapshot,
   SupabaseSession,
   SupabaseUser,
   TrackDetails,
@@ -350,4 +351,16 @@ export function recolherStake(stakeId: string, token: string) {
 // Total de pontos recolhidos pelo usuário (sistema isolado de Stakes).
 export function getStakePoints(token: string) {
   return request<{ total: number }>('/stakes/points', { token })
+}
+
+// Série diária de popularidade de um stake (fallback do gráfico — normalmente os
+// snapshots já vêm junto do GET /stakes).
+export function getStakeSnapshots(stakeId: string, token: string) {
+  return request<{
+    baseline_popularity: number
+    last_popularity: number
+    multiplier: number | string
+    staked_at: string
+    snapshots: StakeSnapshot[]
+  }>(`/stakes/${stakeId}/snapshots`, { token })
 }
