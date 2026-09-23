@@ -2,7 +2,7 @@
 
 Versão mobile do [Mirsui](../Mirsui). Esta primeira versão cobre:
 
-- **Tela inicial deslogada** (landing) com hero, "subindo na cena" (claims recentes), manifesto e CTAs.
+- **Tela inicial deslogada** (landing) igual à home do site, na identidade club (claro/escuro): capas da seleção da casa, gêneros do acervo, demonstração do registro, achados recentes da cena e fechamento. Os dados vêm de `GET /landing` do backend.
 - **Autenticação** (login e cadastro) via backend Fastify (`../mirsui-backend`).
 - **Feed logado** com ticker ao vivo, "drop de hoje", reivindicações recentes, lista de despachos, like/salvar (otimista), pull-to-refresh e paginação infinita.
 

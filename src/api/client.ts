@@ -283,8 +283,8 @@ export function deleteTrack(trackId: number, token: string) {
 
 /* ---------------------------- Landing ---------------------------- */
 
-// Tudo que a primeira tela precisa, numa chamada: a parede de capas do
-// Observatório, o tamanho do catálogo, os achados da cena e quem está aqui.
+// Tudo que a primeira tela precisa, numa chamada: os gêneros do acervo, os
+// achados recentes da cena e quem está aqui.
 export function getLanding() {
   return request<LandingData>('/landing')
 }

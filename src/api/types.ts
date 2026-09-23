@@ -80,15 +80,23 @@ export interface RecentClaim {
 
 /* ----------------------------- Landing --------------------------- */
 
-// Uma capa da parede do acervo (Observatório).
-export interface FaixaDaParede {
+// Uma capa do acervo (Observatório) na seção "Saia do repeat.".
+export interface FaixaDoGenero {
   isrc: string | null
-  title: string
-  artist: string
-  cover: string | null
+  titulo: string
+  artista: string
+  /** capa do Deezer em 250px, já montada pelo backend */
+  capa: string | null
 }
 
-// Um salvamento recente com quem salvou, para a seção "O que a cena salvou".
+// Um gênero da casa com a contagem real do acervo e seis capas de amostra.
+export interface GeneroDoAcervo {
+  nome: string
+  total: number
+  faixas: FaixaDoGenero[]
+}
+
+// Um salvamento recente com quem salvou, para a seção "Música boa circula.".
 export interface AchadoDaCena {
   id: number
   track_title: string
@@ -104,20 +112,19 @@ export interface AchadoDaCena {
   avatar_url: string | null
 }
 
-// Uma pessoa da cena, com o número real de faixas dela.
+// Quem já está aqui: a pilha de avatares ao pé da cena.
 export interface PessoaDaCena {
   username: string
-  display_name: string | null
-  avatar_url: string | null
+  nome: string
+  avatar: string | null
   faixas: number
   primeiros: number
 }
 
-// GET /landing → tudo que a primeira tela precisa, numa chamada só.
+// GET /landing → tudo que a primeira tela precisa, numa chamada só. Os mesmos
+// blocos que a home do site monta no servidor.
 export interface LandingData {
-  parede: FaixaDaParede[]
-  /** faixas ativas sob medição diária no Observatório */
-  catalogo: number
+  generos: GeneroDoAcervo[]
   achados: AchadoDaCena[]
   pessoas: PessoaDaCena[]
 }

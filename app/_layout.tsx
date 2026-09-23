@@ -4,18 +4,23 @@ import { Stack } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { QueryClientProvider } from '@tanstack/react-query'
+import { useFonts } from 'expo-font'
 import { AuthProvider, useAuth } from '../src/auth/AuthContext'
 import { queryClient } from '../src/api/queryClient'
 import MirsuiLoader from '../src/components/MirsuiLoader'
 import { colors } from '../src/theme'
+import { clubFontFiles } from '../src/club'
 
 // Navegador raiz: enquanto restaura a sessão, mostra um splash. Depois, as
 // guardas (Stack.Protected) decidem quais rotas existem conforme o login —
 // o expo-router redireciona sozinho quando o estado de auth muda.
 function RootNavigator() {
   const { loading, isAuthenticated } = useAuth()
+  // As fontes da identidade club (Archivo, Hanken Grotesk, Space Grotesk).
+  // Se falharem, segue com a fonte do sistema em vez de prender o splash.
+  const [fontes, erroDasFontes] = useFonts(clubFontFiles)
 
-  if (loading) {
+  if (loading || (!fontes && !erroDasFontes)) {
     return (
       <View style={styles.splash}>
         <MirsuiLoader size={60} />

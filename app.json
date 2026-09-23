@@ -30,7 +30,8 @@
         {
           "photosPermission": "O Mirsui usa suas fotos para você escolher a imagem de perfil."
         }
-      ]
+      ],
+      "expo-font"
     ]
   }
 }
