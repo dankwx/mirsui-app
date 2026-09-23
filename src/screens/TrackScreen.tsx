@@ -106,7 +106,7 @@ export default function TrackScreen({ trackId }: { trackId: string }) {
           {
             trackUri: t.uri,
             trackName: t.name,
-            artistName: t.artists.map((a) => a.name).join(', '),
+            artistName: t.artist,
             albumName: t.album.name || '',
             spotifyUrl: t.spotify_url,
             trackThumbnail: t.album.image || '',
@@ -138,7 +138,7 @@ export default function TrackScreen({ trackId }: { trackId: string }) {
   const handleShare = useCallback(() => {
     if (!details) return
     const t = details.track
-    const artistNames = t.artists.map((a) => a.name).join(', ')
+    const artistNames = t.artist
     Share.share({
       message: `${t.name} — ${artistNames}\nCravei essa faixa antes de virar mainstream 🌱\n${t.spotify_url}`,
     }).catch(() => {})
@@ -163,7 +163,7 @@ export default function TrackScreen({ trackId }: { trackId: string }) {
   }
 
   const t = details.track
-  const artistNames = t.artists.map((a) => a.name).join(', ') || 'Artista Desconhecido'
+  const artistNames = t.artist || 'Artista Desconhecido'
   const releaseYear = t.album.release_date ? parseInt(t.album.release_date.slice(0, 4), 10) : null
 
   const specs = [

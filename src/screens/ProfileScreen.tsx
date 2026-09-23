@@ -35,7 +35,7 @@ import type { FollowUser, Profile, ProfileComment, ProfileStats, ProfileTrack } 
 import { BackButton, Button } from '../components/ui'
 import EditProfileModal from '../components/EditProfileModal'
 import { timeAgo } from '../lib/time'
-import { spotifyTrackId } from '../lib/track'
+import { trackId } from '../lib/track'
 import { colors, initials } from '../theme'
 
 const MONTHS_UP = ['JAN', 'FEV', 'MAR', 'ABR', 'MAI', 'JUN', 'JUL', 'AGO', 'SET', 'OUT', 'NOV', 'DEZ']
@@ -300,9 +300,10 @@ export default function ProfileScreen({ userId }: { userId?: string } = {}) {
     Alert.alert(track.track_title, track.artist_name, buttons)
   }
 
-  // Abre a página de track interna; cai no Spotify se não der pra extrair o id.
+  // Abre a ficha da faixa; cai no Spotify quando a linha não tem identificador
+  // que a gente saiba resolver (nem ISRC, nem id do Spotify na url).
   const openTrack = (track: ProfileTrack) => {
-    const id = spotifyTrackId(track)
+    const id = trackId(track)
     if (id) router.push(`/track/${id}`)
     else if (track.track_url) Linking.openURL(track.track_url)
   }
@@ -834,8 +835,8 @@ function TrackCard({
       <Text style={styles.cardArtist} numberOfLines={1}>
         {track.artist_name}
       </Text>
-      {track.likes_count > 0 ? (
-        <Text style={styles.cardMeta}>{track.likes_count} também têm</Text>
+      {track.savers_count > 1 ? (
+        <Text style={styles.cardMeta}>{track.savers_count} já salvaram</Text>
       ) : null}
     </Pressable>
   )

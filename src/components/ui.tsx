@@ -12,7 +12,17 @@ import {
 import { Ionicons } from '@expo/vector-icons'
 import { colors } from '../theme'
 
-type ButtonVariant = 'acc' | 'light' | 'solid' | 'ghost'
+/**
+ * `paper` é o botão primário neutro do design system: o lima significa tempo e
+ * precedência ("você chegou cedo"), não "clique aqui". Uma ação que se repete
+ * em toda tela não pode ser o que brilha, senão o acento para de significar
+ * alguma coisa. É o que a landing e o feed usam.
+ *
+ * O padrão continua sendo `acc` porque as telas antigas (Stakes, Perfil,
+ * Ficha) contam com ele, e trocar o padrão as repintaria inteiras de uma vez.
+ * Quando elas passarem pela mesma revisão, o padrão vira `paper`.
+ */
+type ButtonVariant = 'paper' | 'acc' | 'light' | 'solid' | 'ghost'
 
 export function Button({
   label,
@@ -106,6 +116,7 @@ export function Pill({ children, accent }: { children: React.ReactNode; accent?:
 }
 
 const variantStyles: Record<ButtonVariant, { btn: ViewStyle; text: any }> = {
+  paper: { btn: { backgroundColor: colors.paper }, text: { color: colors.paperInk } },
   acc: { btn: { backgroundColor: colors.acc }, text: { color: colors.onAcc } },
   light: {
     btn: { backgroundColor: colors.fill2, borderWidth: 1, borderColor: colors.line2 },

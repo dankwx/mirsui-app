@@ -150,6 +150,24 @@ para o refetch de foco não acender o indicador.
 - Núcleo do padrão: `src/api/queries.ts` (definições) + `src/api/queryClient.ts`
   (client) + prefetch em `AuthContext.tsx`.
 - Telas já convertidas (use como referência):
+  - **Landing** (`LandingScreen.tsx`) — `useQuery` numa chamada só (`GET /landing`),
+    com esqueleto no lugar de spinner e estado de erro separado do vazio.
   - **Perfil** (`ProfileScreen.tsx`) — `useQuery` + modal de seguidores/seguindo + prefetch.
-  - **Feed** (`FeedScreen.tsx`) — `useInfiniteQuery` paginado + claims.
+  - **Feed** (`FeedScreen.tsx`) — `useInfiniteQuery` paginado + salvamento otimista.
   - **Stakes** (`StakesScreen.tsx`) — `useQuery` + revalidação no foco.
+
+### Token em query autenticada
+
+O token entra pelo `queryFn` (via `TokenGetter`), **nunca na `queryKey`**. O
+access token do Supabase rotaciona a cada ~1h, e chavear por ele jogaria o cache
+inteiro fora a cada renovação. É o que o `feedQuery` faz: manda o token em toda
+página do offset — é ele que faz o backend responder `saved_by_me` — sem que ele
+apareça na chave.
+
+### Estado que é por entidade, não por linha
+
+Salvar uma faixa é por **gravação** (`isrc`, ou `track_uri` nas linhas antigas),
+não por post: a mesma faixa aparece no feed uma vez para cada pessoa que a
+salvou. Então a atualização otimista percorre o `InfiniteData` e marca **todos**
+os posts daquela gravação de uma vez (`marcarSalvaNoCache` em `queries.ts`).
+Marcar só o post tocado faz a tela se contradizer sozinha na mesma rolagem.

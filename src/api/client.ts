@@ -1,9 +1,11 @@
 import { API_URL } from '../config'
+import { isIsrc } from '../lib/track'
 import type {
   AuthResponse,
   ClaimResult,
   FeedPost,
   FollowUser,
+  LandingData,
   PlaceStakeResult,
   Profile,
   ProfileComment,
@@ -209,16 +211,38 @@ export function uploadAvatar(
 
 /* ----------------------------- Tracks --------------------------- */
 
-// Detalhes completos da faixa para a página de track. Token opcional: quando
-// presente, a resposta inclui o status de claim do próprio usuário.
-export function getTrackDetails(spotifyId: string, token?: string) {
-  return request<TrackDetails>(`/tracks/spotify/${spotifyId}`, { token })
+/**
+ * A ficha completa de uma gravação. Token opcional: com ele, a resposta inclui
+ * o claim do próprio usuário.
+ *
+ * O endereço canônico é o ISRC (migration 023). O id do Spotify continua
+ * atendido pela rota antiga, que o traduz para ISRC consultando o banco local
+ * — é o que mantém de pé as linhas salvas antes da 023, cujo `track_uri` é
+ * 'spotify:track:<id>' e que não têm ISRC nenhum.
+ */
+export function getTrackDetails(id: string, token?: string) {
+  const path = isIsrc(id)
+    ? `/tracks/isrc/${encodeURIComponent(id.toUpperCase())}`
+    : `/tracks/spotify/${encodeURIComponent(id)}`
+  return request<TrackDetails>(path, { token })
 }
 
-// Reivindicar uma faixa (claim). O backend calcula a posição.
+/**
+ * Salvar uma faixa. O backend calcula a posição (a ordem de chegada).
+ *
+ * O `isrc` acompanha o `trackUri`, não substitui: `track_uri` continua sendo a
+ * chave opaca do acervo, e o `isrc` é o que faz a contagem, a deduplicação e o
+ * "você já salvou" enxergarem a mesma GRAVAÇÃO mesmo quando ela foi salva por
+ * caminhos diferentes. Ver migrations/023_isrc_canonico.sql.
+ *
+ * Salvar é mão única: não existe "dessalvar", porque tirar um salvamento
+ * abriria buraco na numeração de quem veio depois. Por isso não há o par
+ * `unclaim` aqui — a ausência é deliberada.
+ */
 export function claimTrack(
   body: {
     trackUri: string
+    isrc?: string | null
     trackName: string
     artistName: string
     albumName: string
@@ -257,43 +281,37 @@ export function deleteTrack(trackId: number, token: string) {
   })
 }
 
+/* ---------------------------- Landing ---------------------------- */
+
+// Tudo que a primeira tela precisa, numa chamada: a parede de capas do
+// Observatório, o tamanho do catálogo, os achados da cena e quem está aqui.
+export function getLanding() {
+  return request<LandingData>('/landing')
+}
+
 /* ----------------------------- Feed ----------------------------- */
 
-export function getFeed(limit = 5, offset = 0) {
+/**
+ * Uma página do feed.
+ *
+ * O token é o que faz o backend responder `saved_by_me`. Sem ele vem `false`
+ * em todos os posts — e as faixas que a pessoa já salvou voltariam a oferecer
+ * "Salvar". Por isso ele vai junto em TODA página do offset, não só na
+ * primeira.
+ */
+export function getFeed(limit = 5, offset = 0, token?: string) {
   return request<{ posts: FeedPost[]; total: number }>(
-    `/feed?limit=${limit}&offset=${offset}`
+    `/feed?limit=${limit}&offset=${offset}`,
+    { token }
   )
 }
 
+// Achados recentes, sem faixa repetida (únicos por gravação). Nenhuma tela do
+// app consome hoje: o feed já é esta lista sem a deduplicação, e a landing
+// recebe os achados dela por GET /landing. Fica porque `client.ts` espelha as
+// rotas do backend, e esta existe.
 export function getRecentClaims(limit = 4) {
   return request<{ claims: RecentClaim[] }>(`/feed/recent-claims?limit=${limit}`)
-}
-
-export function getUserLikes(trackIds: number[], token?: string) {
-  return request<{ liked_tracks: number[] }>('/feed/user-likes', {
-    method: 'POST',
-    token,
-    body: JSON.stringify({ track_ids: trackIds }),
-  })
-}
-
-/* --------------------------- Likes ------------------------------ */
-
-export function likeTrack(trackId: number, token: string) {
-  return request<{ success: boolean }>(`/tracks/${trackId}/like`, {
-    method: 'POST',
-    token,
-  })
-}
-
-export function unlikeTrack(trackId: number, token: string) {
-  return request<{ success: boolean; deleted: number }>(
-    `/tracks/${trackId}/like`,
-    {
-      method: 'DELETE',
-      token,
-    }
-  )
 }
 
 /* ----------------------------- Stakes --------------------------- */

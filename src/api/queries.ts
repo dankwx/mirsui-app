@@ -8,11 +8,11 @@
 import {
   infiniteQueryOptions,
   queryOptions,
+  type InfiniteData,
   type QueryClient,
 } from '@tanstack/react-query'
 import * as api from './client'
 import type { FeedPost } from './types'
-import type { FeedPostUI } from '../components/FeedItem'
 
 // Getter de token de acesso (vem do AuthContext). Queries autenticadas o
 // recebem por parâmetro em vez de acoplar ao contexto — assim continuam
@@ -33,7 +33,10 @@ export const profileKeys = {
 
 export const feedKeys = {
   list: ['feed'] as const,
-  recentClaims: ['feed', 'recent-claims'] as const,
+}
+
+export const landingKeys = {
+  root: ['landing'] as const,
 }
 
 export const stakeKeys = {
@@ -94,39 +97,34 @@ export const followListQuery = (
     },
   })
 
+/* ----------------------------- Landing -------------------------------- */
+
+// A primeira tela inteira numa chamada. Pública: nada aqui depende de token.
+export const landingQuery = () =>
+  queryOptions({
+    queryKey: landingKeys.root,
+    queryFn: () => api.getLanding(),
+  })
+
 /* ------------------------------- Feed --------------------------------- */
 
 const FEED_PAGE = 5
 
-// Decora os posts com o estado de like do usuário atual. Falha de likes não é
-// fatal: o feed aparece mesmo sem essa informação.
-async function decorateWithLikes(
-  raw: FeedPost[],
-  getToken: TokenGetter
-): Promise<FeedPostUI[]> {
-  if (raw.length === 0) return []
-  let liked = new Set<number>()
-  try {
-    const token = await getToken()
-    const res = await api.getUserLikes(
-      raw.map((p) => p.id),
-      token ?? undefined
-    )
-    liked = new Set(res.liked_tracks || [])
-  } catch {
-    // sem likes não é erro fatal
-  }
-  return raw.map((p) => ({ ...p, isLiked: liked.has(p.id) }))
-}
-
-// Feed paginado (infinite). pageParam é o offset; cada página é um array já
-// decorado com isLiked. data.pages.flat() dá a lista completa.
+/**
+ * Feed paginado. `pageParam` é o offset; `data.pages.flat()` dá a lista.
+ *
+ * O token vai em toda página porque é ele que faz o backend responder
+ * `saved_by_me` (ver api.getFeed). Ele não entra na queryKey de propósito: o
+ * access token do Supabase rotaciona a cada hora, e chavear por ele jogaria o
+ * feed inteiro fora a cada renovação.
+ */
 export const feedQuery = (getToken: TokenGetter) =>
   infiniteQueryOptions({
     queryKey: feedKeys.list,
     queryFn: async ({ pageParam }) => {
-      const res = await api.getFeed(FEED_PAGE, pageParam)
-      return decorateWithLikes(res.posts || [], getToken)
+      const token = await getToken()
+      const res = await api.getFeed(FEED_PAGE, pageParam, token ?? undefined)
+      return res.posts || []
     },
     initialPageParam: 0,
     getNextPageParam: (lastPage, allPages) => {
@@ -135,11 +133,51 @@ export const feedQuery = (getToken: TokenGetter) =>
     },
   })
 
-export const recentClaimsQuery = () =>
-  queryOptions({
-    queryKey: feedKeys.recentClaims,
-    queryFn: () => api.getRecentClaims(4).then((r) => r.claims || []),
-  })
+/* ------------------------- Salvar uma faixa ---------------------------- */
+
+/**
+ * A chave da GRAVAÇÃO, que é por onde "salvar" se identifica.
+ *
+ * Salvar é por música, não por achado: a mesma faixa pode aparecer duas vezes
+ * no feed, salva por pessoas diferentes, e salvar numa tem que marcar a outra
+ * na hora — senão a tela se contradiz sozinha. O `isrc` vem primeiro porque é
+ * a identidade canônica; o `track_uri` atende as linhas antigas, que não têm
+ * ISRC nenhum.
+ */
+export function chaveDaGravacao(post: {
+  isrc?: string | null
+  track_uri?: string | null
+}): string | null {
+  return post.isrc || post.track_uri || null
+}
+
+/**
+ * Marca no cache do feed todos os posts da mesma gravação como salvos.
+ *
+ * Devolve o estado anterior para o rollback. Salvar é mão única, então só há
+ * um sentido a desfazer: o otimista que não confirmou.
+ */
+export function marcarSalvaNoCache(qc: QueryClient, chave: string) {
+  const anterior = qc.getQueryData<InfiniteData<FeedPost[]>>(feedKeys.list)
+
+  qc.setQueryData<InfiniteData<FeedPost[]>>(feedKeys.list, (old) =>
+    old
+      ? {
+          ...old,
+          pages: old.pages.map((page) =>
+            page.map((p) =>
+              chaveDaGravacao(p) === chave && !p.saved_by_me
+                ? // o contador do servidor não conhece o que acabou de ser salvo
+                  { ...p, saved_by_me: true, savers_count: p.savers_count + 1 }
+                : p
+            )
+          ),
+        }
+      : old
+  )
+
+  return () => qc.setQueryData(feedKeys.list, anterior)
+}
 
 /* ------------------------------ Stakes -------------------------------- */
 
